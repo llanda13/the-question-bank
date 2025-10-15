@@ -228,7 +228,7 @@ Return a JSON object with an "items" array containing questions in this exact fo
       error_rate: 0,
       throughput: validQuestions.length,
       measurement_period_minutes: 1
-    }).catch(err => console.error('Failed to record performance:', err));
+    });
 
     await supabase.from('quality_metrics').insert({
       entity_type: 'question_generation',
@@ -237,7 +237,7 @@ Return a JSON object with an "items" array containing questions in this exact fo
       value: (insertedQuestions?.length || 0) / count,
       unit: 'ratio',
       automated: true
-    }).catch(err => console.error('Failed to record quality:', err));
+    });
 
     await supabase.from('system_metrics').insert({
       metric_category: 'performance',
@@ -250,7 +250,7 @@ Return a JSON object with an "items" array containing questions in this exact fo
         bloom_level,
         difficulty
       }
-    }).catch(err => console.error('Failed to record system metrics:', err));
+    });
 
     return new Response(
       JSON.stringify({
