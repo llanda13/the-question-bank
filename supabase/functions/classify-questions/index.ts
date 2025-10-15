@@ -298,7 +298,7 @@ serve(async (req) => {
       error_rate: 0,
       throughput: results.length,
       measurement_period_minutes: 1
-    });
+    }).catch(err => console.error('Failed to record performance:', err));
 
     // Record quality metrics
     await supabase.from('quality_metrics').insert({
@@ -308,7 +308,7 @@ serve(async (req) => {
       value: avgConfidence,
       unit: 'score',
       automated: true
-    });
+    }).catch(err => console.error('Failed to record quality:', err));
 
     // Record system metrics
     await supabase.from('system_metrics').insert({
@@ -321,7 +321,7 @@ serve(async (req) => {
         duration_ms: duration,
         needs_review: results.filter(r => r.needs_review).length
       }
-    });
+    }).catch(err => console.error('Failed to record system metrics:', err));
 
     return new Response(JSON.stringify(results), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
