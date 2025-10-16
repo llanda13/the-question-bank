@@ -4,6 +4,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PendingQuestionsPanel } from "@/components/admin/PendingQuestionsPanel";
 import { 
   Users, 
   Database, 
@@ -109,6 +110,9 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Pending Questions Panel - High Priority */}
+        <PendingQuestionsPanel />
 
         {/* Quick Actions */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
