@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import TeacherDashboard from "./pages/teacher/TeacherDashboard";
+import QuestionBankManager from "./pages/admin/QuestionBankManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
@@ -29,7 +30,7 @@ const App = () => {
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
               
-              {/* Admin Routes - Separate Admin Interface */}
+              {/* Admin Routes - Professional Dark Theme */}
               <Route 
                 path="/admin/*" 
                 element={
@@ -37,12 +38,14 @@ const App = () => {
                     <Routes>
                       <Route index element={<Navigate to="/admin/dashboard" replace />} />
                       <Route path="dashboard" element={<AdminDashboard />} />
+                      <Route path="question-bank" element={<QuestionBankManager />} />
+                      {/* More admin routes will be added here */}
                     </Routes>
                   </ProtectedRoute>
                 } 
               />
               
-              {/* Teacher Routes - Separate Teacher Interface */}
+              {/* Teacher Routes - Clean Light Theme */}
               <Route 
                 path="/teacher/*" 
                 element={
@@ -50,6 +53,7 @@ const App = () => {
                     <Routes>
                       <Route index element={<Navigate to="/teacher/dashboard" replace />} />
                       <Route path="dashboard" element={<TeacherDashboard />} />
+                      {/* More teacher routes will be added here */}
                     </Routes>
                   </ProtectedRoute>
                 } 
