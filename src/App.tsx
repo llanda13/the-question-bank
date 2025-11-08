@@ -10,6 +10,12 @@ import Auth from "./pages/Auth";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import QuestionBankManager from "./pages/admin/QuestionBankManager";
+import PendingApprovals from "./pages/admin/PendingApprovals";
+import BulkImportPage from "./pages/admin/BulkImportPage";
+import UserManagement from "./pages/admin/UserManagement";
+import TOSPage from "./pages/teacher/TOSPage";
+import IntelligentTestGenerator from "./pages/teacher/IntelligentTestGenerator";
+import MyTests from "./pages/teacher/MyTests";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
@@ -39,7 +45,9 @@ const App = () => {
                       <Route index element={<Navigate to="/admin/dashboard" replace />} />
                       <Route path="dashboard" element={<AdminDashboard />} />
                       <Route path="question-bank" element={<QuestionBankManager />} />
-                      {/* More admin routes will be added here */}
+                      <Route path="approvals" element={<PendingApprovals />} />
+                      <Route path="bulk-import" element={<BulkImportPage />} />
+                      <Route path="users" element={<UserManagement />} />
                     </Routes>
                   </ProtectedRoute>
                 } 
@@ -53,7 +61,9 @@ const App = () => {
                     <Routes>
                       <Route index element={<Navigate to="/teacher/dashboard" replace />} />
                       <Route path="dashboard" element={<TeacherDashboard />} />
-                      {/* More teacher routes will be added here */}
+                      <Route path="tos" element={<TOSPage />} />
+                      <Route path="generate-test" element={<IntelligentTestGenerator />} />
+                      <Route path="my-tests" element={<MyTests />} />
                     </Routes>
                   </ProtectedRoute>
                 } 

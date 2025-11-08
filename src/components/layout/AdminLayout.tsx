@@ -12,7 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
-  Brain
+  Brain,
+  Upload
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,12 @@ const adminMenuItems = [
     href: "/admin/question-bank", 
     icon: Database,
     description: "Full CRUD access" 
+  },
+  { 
+    title: "Bulk Import", 
+    href: "/admin/bulk-import", 
+    icon: Upload,
+    description: "Import questions" 
   },
   { 
     title: "Question Approvals", 
