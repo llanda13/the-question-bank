@@ -22,6 +22,8 @@ import MyTests from "./pages/teacher/MyTests";
 import TeacherHistory from "./pages/teacher/History";
 import TeacherReports from "./pages/teacher/Reports";
 import TeacherSettings from "./pages/teacher/Settings";
+import ProfessionalExport from "./pages/ProfessionalExport";
+import Rubrics from "./pages/Rubrics";
 import Quality from "./pages/Quality";
 import TestAssembly from "./pages/TestAssembly";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -79,6 +81,8 @@ const App = () => {
                       <Route path="my-tests" element={<MyTests />} />
                       <Route path="history" element={<TeacherHistory />} />
                       <Route path="reports" element={<TeacherReports />} />
+                      <Route path="export" element={<ProfessionalExport />} />
+                      <Route path="rubrics" element={<Rubrics />} />
                       <Route path="settings" element={<TeacherSettings />} />
                     </Routes>
                   </ProtectedRoute>
