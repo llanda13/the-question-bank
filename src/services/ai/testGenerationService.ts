@@ -279,6 +279,17 @@ async function generateQuestionsWithAI(
     }).catch(err => console.error('Error updating semantic vector:', err));
   }
 
+  // Calculate and store semantic similarities to prevent duplicates (async)
+  for (const question of insertedQuestions || []) {
+    supabase.functions.invoke('semantic-similarity', {
+      body: {
+        questionText: question.question_text,
+        questionId: question.id,
+        threshold: 0.7
+      }
+    }).catch(err => console.error('Error storing semantic similarity:', err));
+  }
+
   // Return the inserted questions with their IDs
   return insertedQuestions || generatedQuestions;
 }

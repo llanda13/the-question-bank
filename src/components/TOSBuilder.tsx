@@ -336,15 +336,15 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       setGenerationProgress(90);
       setGenerationStatus("Test saved successfully!");
       
-      setGenerationProgress(100);
-      setGenerationStatus("Redirecting to test preview...");
-      
-      toast.success(`Successfully generated test with ${result.questions.length} questions!`);
-      
-      // Redirect to the generated test page using correct path
-      setTimeout(() => {
-        navigate(`/teacher/GeneratedTestPage/${result.id}`);
-      }, 500);
+       setGenerationProgress(100);
+       setGenerationStatus("Redirecting to test preview...");
+       
+       toast.success(`Successfully generated test with ${result.questions.length} questions!`);
+       
+       // Redirect to the generated test page using correct path
+       setTimeout(() => {
+         navigate(`/teacher/generated-test/${result.id}`);
+       }, 500);
       
     } catch (error) {
       console.error('Error generating test:', error);
