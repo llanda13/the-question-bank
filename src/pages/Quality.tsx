@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,13 +7,16 @@ import { Shield, Activity, BarChart3, CheckCircle2, AlertTriangle } from 'lucide
 import PsychometricDashboard from '@/components/analytics/PsychometricDashboard';
 import ValidationDashboard from '@/components/testing/ValidationDashboard';
 import { QualityDashboard } from '@/components/quality/QualityDashboard';
+import { useQualityMetrics } from '@/hooks/useQualityMetrics';
 
 export default function Quality() {
   const [selectedTab, setSelectedTab] = useState('overview');
+  
+  // Initialize automated quality metrics collection
+  useQualityMetrics();
 
   return (
-    <AdminLayout>
-      <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Quality Assurance</h1>
@@ -184,7 +186,6 @@ export default function Quality() {
         </TabsContent>
       </Tabs>
       </div>
-    </AdminLayout>
   );
 }
 
