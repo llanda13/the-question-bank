@@ -243,7 +243,7 @@ async function generateQuestionsWithAI(
     approved: true,
     owner: userId,
     ai_confidence_score: q.ai_confidence_score || 0.6,
-    needs_review: q.needs_review || true,
+    needs_review: false,
     metadata: q.metadata || {}
   }));
 

@@ -287,32 +287,58 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       setGenerationProgress(20);
       setGenerationStatus("Analyzing TOS matrix and building criteria...");
       
-      // Build criteria from TOS topics - extract from distribution
+      // Build criteria from TOS topics – support both legacy `distribution` and new `matrix` shapes
       const criteria: TOSCriteria[] = [];
-      
-      for (const topic of tosMatrix.topics) {
-        const topicDistribution = tosMatrix.distribution?.[topic.name];
-        if (!topicDistribution) continue;
 
-        // Add criteria for each Bloom level that has items
-        if (topicDistribution.remembering?.length > 0) {
-          criteria.push({ topic: topic.name, bloom_level: 'remembering', knowledge_dimension: 'Factual', difficulty: 'easy', count: topicDistribution.remembering.length });
+      const difficultyFor = (bloom: string) => {
+        const b = bloom.toLowerCase();
+        if (b === 'remembering' || b === 'understanding') return 'easy';
+        if (b === 'applying' || b === 'analyzing') return 'average';
+        return 'difficult'; // evaluating, creating
+      };
+
+      const levels: Array<keyof any> = [
+        'remembering',
+        'understanding',
+        'applying',
+        'analyzing',
+        'evaluating',
+        'creating',
+      ];
+
+      for (const topic of (tosMatrix.topics || [])) {
+        const topicName = topic.name || topic.topic; // tolerate both shapes
+        if (!topicName) continue;
+
+        const matrixEntry = tosMatrix.matrix?.[topicName];
+        const distributionEntry = tosMatrix.distribution?.[topicName];
+
+        for (const level of levels) {
+          let count = 0;
+          // New matrix format: { count, items }
+          if (matrixEntry?.[level]?.count != null) {
+            count = Number(matrixEntry[level].count) || 0;
+          } else if (Array.isArray(distributionEntry?.[level])) {
+            // Legacy distribution arrays
+            count = (distributionEntry[level] as number[]).length;
+          }
+
+          if (count > 0) {
+            criteria.push({
+              topic: topicName,
+              bloom_level: String(level),
+              knowledge_dimension: level === 'remembering' ? 'Factual' : level === 'applying' ? 'Procedural' : level === 'creating' || level === 'evaluating' ? 'Metacognitive' : 'Conceptual',
+              difficulty: difficultyFor(String(level)),
+              count,
+            });
+          }
         }
-        if (topicDistribution.understanding?.length > 0) {
-          criteria.push({ topic: topic.name, bloom_level: 'understanding', knowledge_dimension: 'Conceptual', difficulty: 'easy', count: topicDistribution.understanding.length });
-        }
-        if (topicDistribution.applying?.length > 0) {
-          criteria.push({ topic: topic.name, bloom_level: 'applying', knowledge_dimension: 'Procedural', difficulty: 'average', count: topicDistribution.applying.length });
-        }
-        if (topicDistribution.analyzing?.length > 0) {
-          criteria.push({ topic: topic.name, bloom_level: 'analyzing', knowledge_dimension: 'Conceptual', difficulty: 'average', count: topicDistribution.analyzing.length });
-        }
-        if (topicDistribution.evaluating?.length > 0) {
-          criteria.push({ topic: topic.name, bloom_level: 'evaluating', knowledge_dimension: 'Metacognitive', difficulty: 'difficult', count: topicDistribution.evaluating.length });
-        }
-        if (topicDistribution.creating?.length > 0) {
-          criteria.push({ topic: topic.name, bloom_level: 'creating', knowledge_dimension: 'Metacognitive', difficulty: 'difficult', count: topicDistribution.creating.length });
-        }
+      }
+
+      if (criteria.length === 0) {
+        setIsGeneratingTest(false);
+        toast.error('No items found in the TOS matrix. Please generate the TOS first.');
+        return;
       }
       
       setGenerationProgress(40);
