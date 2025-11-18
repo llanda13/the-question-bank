@@ -276,12 +276,27 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     try {
       // Save TOS to database first if not already saved
       let savedTOSId = tosMatrix.id;
+      
+      // Verify TOS exists in database, or create new one
       if (!savedTOSId || savedTOSId.startsWith('temp-')) {
         setGenerationStatus("Saving TOS to database...");
         const { id, ...tosDataWithoutId } = tosMatrix;
         const savedTOS = await TOS.create(tosDataWithoutId);
         savedTOSId = savedTOS.id;
         setTosMatrix({ ...tosMatrix, id: savedTOSId });
+      } else {
+        // Verify the TOS exists in the database
+        try {
+          await TOS.getById(savedTOSId);
+        } catch (error) {
+          // TOS doesn't exist, create a new one
+          console.warn("TOS ID exists but record not found in database, creating new entry");
+          setGenerationStatus("Saving TOS to database...");
+          const { id, ...tosDataWithoutId } = tosMatrix;
+          const savedTOS = await TOS.create(tosDataWithoutId);
+          savedTOSId = savedTOS.id;
+          setTosMatrix({ ...tosMatrix, id: savedTOSId });
+        }
       }
 
       setGenerationProgress(20);
