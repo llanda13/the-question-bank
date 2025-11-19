@@ -157,8 +157,17 @@ export async function generateTestFromTOS(
     title: testData.title,
     itemsCount: selectedQuestions.length,
     answerKeyCount: answerKey.length,
-    hasMetadata: !!testMetadata
+    hasMetadata: !!testMetadata,
+    tos_id: testData.tos_id
   });
+  
+  // CRITICAL: Validate TOS ID before inserting
+  if (!testData.tos_id) {
+    console.error("❌ No TOS ID provided in metadata!");
+    throw new Error("Cannot save test without valid TOS ID");
+  }
+  
+  console.log(`   ✓ TOS ID validated: ${testData.tos_id}`);
 
   const { data: generatedTest, error: insertError } = await supabase
     .from('generated_tests')
