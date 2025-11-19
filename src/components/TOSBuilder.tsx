@@ -274,30 +274,55 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     setGenerationStatus("Initializing test generation...");
     
     try {
-      // Save TOS to database first if not already saved
+      // Save TOS to database first - CRITICAL: Must exist before generating test
       let savedTOSId = tosMatrix.id;
       
-      // Verify TOS exists in database, or create new one
-      if (!savedTOSId || savedTOSId.startsWith('temp-')) {
-        setGenerationStatus("Saving TOS to database...");
-        const { id, ...tosDataWithoutId } = tosMatrix;
-        const savedTOS = await TOS.create(tosDataWithoutId);
-        savedTOSId = savedTOS.id;
-        setTosMatrix({ ...tosMatrix, id: savedTOSId });
-      } else {
-        // Verify the TOS exists in the database
+      console.log("🔍 Verifying TOS before test generation...", { currentId: savedTOSId });
+      
+      // Always verify and create TOS if needed
+      let tosExists = false;
+      
+      if (savedTOSId && !savedTOSId.startsWith('temp-')) {
+        // Check if TOS actually exists in database
         try {
-          await TOS.getById(savedTOSId);
+          const existingTOS = await TOS.getById(savedTOSId);
+          tosExists = !!existingTOS;
+          console.log("✅ TOS found in database:", existingTOS.id);
         } catch (error) {
-          // TOS doesn't exist, create a new one
-          console.warn("TOS ID exists but record not found in database, creating new entry");
-          setGenerationStatus("Saving TOS to database...");
-          const { id, ...tosDataWithoutId } = tosMatrix;
-          const savedTOS = await TOS.create(tosDataWithoutId);
-          savedTOSId = savedTOS.id;
-          setTosMatrix({ ...tosMatrix, id: savedTOSId });
+          console.warn("⚠️ TOS ID exists in state but not in database:", savedTOSId);
+          tosExists = false;
         }
       }
+      
+      // If TOS doesn't exist or has temp ID, create it now
+      if (!tosExists || !savedTOSId || savedTOSId.startsWith('temp-')) {
+        setGenerationStatus("Saving TOS to database...");
+        console.log("💾 Creating new TOS entry in database...");
+        
+        const { id, ...tosDataWithoutId } = tosMatrix;
+        
+        try {
+          const savedTOS = await TOS.create(tosDataWithoutId);
+          
+          if (!savedTOS || !savedTOS.id) {
+            throw new Error("TOS creation failed - no ID returned");
+          }
+          
+          savedTOSId = savedTOS.id;
+          setTosMatrix({ ...tosMatrix, id: savedTOSId });
+          console.log("✅ TOS created successfully:", savedTOSId);
+        } catch (createError) {
+          console.error("❌ Failed to create TOS:", createError);
+          throw new Error(`Failed to save TOS: ${createError instanceof Error ? createError.message : 'Unknown error'}`);
+        }
+      }
+      
+      // Final validation - ensure we have a valid TOS ID
+      if (!savedTOSId || savedTOSId.startsWith('temp-')) {
+        throw new Error("Invalid TOS ID - cannot generate test");
+      }
+      
+      console.log("✅ TOS validation complete. Using ID:", savedTOSId);
 
       setGenerationProgress(20);
       setGenerationStatus("Analyzing TOS matrix and building criteria...");
