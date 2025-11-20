@@ -20,6 +20,7 @@ import { usePresence } from "@/hooks/usePresence";
 import { buildTestConfigFromTOS } from "@/utils/testVersions";
 import { SufficiencyAnalysisPanel } from "@/components/analysis/SufficiencyAnalysisPanel";
 import { generateTestFromTOS, TOSCriteria } from "@/services/ai/testGenerationService";
+import { generateCompleteTestFromTOS } from "@/services/ai/completeTestGenerationService";
 import { useNavigate } from "react-router-dom";
 
 const topicSchema = z.object({
@@ -384,8 +385,9 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       setGenerationProgress(40);
       setGenerationStatus("Querying question bank and generating AI questions...");
       
-      const testMetadata = {
-        subject: tosMatrix.subject || tosMatrix.course,
+      const testData = {
+        title: `${tosMatrix.course || 'Examination'} - ${tosMatrix.exam_period || tosMatrix.period || 'Test'}`,
+        subject: tosMatrix.subject_no || tosMatrix.subject || tosMatrix.course,
         course: tosMatrix.course,
         year_section: tosMatrix.year_section,
         exam_period: tosMatrix.exam_period || tosMatrix.period,
@@ -393,24 +395,21 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         tos_id: savedTOSId,
       };
 
-      const result = await generateTestFromTOS(
-        criteria,
-        `${tosMatrix.course || 'Examination'} - ${tosMatrix.exam_period || tosMatrix.period || 'Test'}`,
-        testMetadata
-      );
+      // Use the new complete test generation service with AI fallback
+      const result = await generateCompleteTestFromTOS(tosMatrix, testData);
       
       setGenerationProgress(90);
       setGenerationStatus("Test saved successfully!");
       
-       setGenerationProgress(100);
-       setGenerationStatus("Redirecting to test preview...");
-       
-       toast.success(`Successfully generated test with ${result.questions.length} questions!`);
-       
-       // Redirect to the generated test page using correct path
-       setTimeout(() => {
-         navigate(`/teacher/generated-test/${result.id}`);
-       }, 500);
+      setGenerationProgress(100);
+      setGenerationStatus("Redirecting to test preview...");
+      
+      toast.success(`Successfully generated test!`);
+      
+      // Redirect to the generated test page
+      setTimeout(() => {
+        navigate(`/teacher/generated-test/${result.testId}`);
+      }, 500);
       
     } catch (error) {
       console.error('Error generating test:', error);
