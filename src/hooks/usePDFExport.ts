@@ -8,8 +8,15 @@ import { addWatermarkToPDF, generateWatermarkCode, logSecurityEvent } from '@/se
 export const usePDFExport = () => {
   const uploadToStorage = useCallback(async (blob: Blob, filename: string, folder: string) => {
     try {
+      // Get current user for owner-based storage path
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User must be authenticated to upload files');
+      }
+
       const timestamp = new Date().toISOString().slice(0, 10);
-      const path = `${folder}/${timestamp}/${filename}`;
+      // Use user ID as first folder segment for owner-based RLS
+      const path = `${user.id}/${folder}/${timestamp}/${filename}`;
 
       const { error: uploadError } = await supabase.storage
         .from('exports')
@@ -20,12 +27,15 @@ export const usePDFExport = () => {
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
+      // Use signed URL instead of public URL for secure access
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('exports')
-        .getPublicUrl(path);
+        .createSignedUrl(path, 3600); // 1 hour expiry
+
+      if (signedUrlError) throw signedUrlError;
 
       return {
-        storageUrl: urlData.publicUrl,
+        storageUrl: signedUrlData.signedUrl,
         storagePath: path
       };
     } catch (error) {
@@ -41,8 +51,8 @@ export const usePDFExport = () => {
         throw new Error('TOS matrix element not found');
       }
 
-      // Create PDF with A4 dimensions
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      // Create PDF with landscape A4 dimensions for TOS
+      const pdf = new jsPDF('l', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 
@@ -142,91 +152,283 @@ export const usePDFExport = () => {
       
       let yPosition = margin;
 
-      // Add title
-      pdf.setFontSize(16);
-      pdf.setFont('helvetica', 'bold');
+      // Add title (Times New Roman, Bold, Centered)
+      pdf.setFontSize(14);
+      pdf.setFont('times', 'bold');
       pdf.text(testTitle, pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += lineHeight;
       
-      // Add version label if provided
-      if (versionLabel) {
-        pdf.setFontSize(12);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(`Version ${versionLabel}`, pageWidth / 2, yPosition + 7, { align: 'center' });
-      }
-      
-      yPosition += lineHeight * 2;
-
-      // Add instructions
+      // Add metadata line (course, section, exam period, school year)
       pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Instructions: Read each question carefully and select the best answer.', margin, yPosition);
-      yPosition += lineHeight * 2;
+      pdf.setFont('times', 'normal');
+      const metaLine = [
+        versionLabel ? `Version ${versionLabel}` : '',
+        'Midterm Examination',
+        `S.Y. ${new Date().getFullYear()}-${new Date().getFullYear() + 1}`
+      ].filter(Boolean).join('     ');
+      pdf.text(metaLine, pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += lineHeight * 1.5;
+      
+      // Add horizontal line
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight;
 
-      // Add questions
-      questions.forEach((question, index) => {
-        // Check if we need a new page
-        if (yPosition > pageHeight - 40) {
-          pdf.addPage();
-          yPosition = margin;
+      // Add student info section (two columns layout)
+      pdf.setFontSize(10);
+      pdf.setFont('times', 'bold');
+      const halfWidth = (pageWidth - margin * 2) / 2;
+      
+      // Row 1: Name and Date
+      pdf.text('Name:', margin, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + 15, yPosition, margin + halfWidth - 10, yPosition);
+      
+      pdf.setFont('times', 'bold');
+      pdf.text('Date:', margin + halfWidth, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + halfWidth + 12, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight;
+      
+      // Row 2: Section and Score
+      pdf.setFont('times', 'bold');
+      pdf.text('Section:', margin, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + 18, yPosition, margin + halfWidth - 10, yPosition);
+      
+      pdf.setFont('times', 'bold');
+      pdf.text('Score:', margin + halfWidth, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + halfWidth + 14, yPosition, pageWidth - margin - 20, yPosition);
+      pdf.setFont('times', 'bold');
+      pdf.text(`/ ${questions.length}`, pageWidth - margin - 18, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      // Group questions by type
+      const grouped = {
+        mcq: [] as any[],
+        true_false: [] as any[],
+        short_answer: [] as any[],
+        essay: [] as any[],
+        other: [] as any[]
+      };
+
+      questions.forEach(q => {
+        const type = (q.question_type || q.type || '').toLowerCase();
+        if (type === 'mcq' || type === 'multiple-choice' || type === 'multiple_choice') {
+          grouped.mcq.push(q);
+        } else if (type === 'true_false' || type === 'true-false' || type === 'truefalse') {
+          grouped.true_false.push(q);
+        } else if (type === 'short_answer' || type === 'fill-blank' || type === 'fill_blank' || type === 'identification') {
+          grouped.short_answer.push(q);
+        } else if (type === 'essay') {
+          grouped.essay.push(q);
+        } else {
+          grouped.other.push(q);
         }
-
-        // Question number and text
-        pdf.setFontSize(11);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text(`${index + 1}.`, margin, yPosition);
-        
-        pdf.setFont('helvetica', 'normal');
-        const questionLines = pdf.splitTextToSize(question.question, pageWidth - margin * 2 - 10);
-        pdf.text(questionLines, margin + 8, yPosition);
-        yPosition += questionLines.length * lineHeight;
-
-        // Add options for multiple choice
-        if (question.type === 'multiple-choice' && question.options) {
-          yPosition += 3;
-          question.options.forEach((option: string, optIndex: number) => {
-            if (yPosition > pageHeight - 20) {
-              pdf.addPage();
-              yPosition = margin;
-            }
-            
-            const optionLetter = String.fromCharCode(65 + optIndex);
-            const optionLines = pdf.splitTextToSize(`${optionLetter}. ${option}`, pageWidth - margin * 2 - 15);
-            pdf.text(optionLines, margin + 15, yPosition);
-            yPosition += optionLines.length * lineHeight;
-          });
-        }
-
-        yPosition += lineHeight;
       });
 
-      // Create answer key on new page
+      let questionNumber = 1;
+
+      // Section A: MCQ
+      if (grouped.mcq.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section A: Multiple Choice Questions', 
+          'Choose the best answer from the options provided.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.mcq) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Section B: True/False
+      if (grouped.true_false.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section B: True or False', 
+          'Write TRUE if the statement is correct, FALSE if incorrect.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.true_false) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Section C: Short Answer
+      if (grouped.short_answer.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section C: Fill in the Blank / Short Answer', 
+          'Write the correct answer on the blank provided.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.short_answer) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Section D: Essay
+      if (grouped.essay.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section D: Essay Questions', 
+          'Answer the following questions in complete sentences.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.essay) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight, true);
+        }
+      }
+
+      // Section E: Other
+      if (grouped.other.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section E: Other Questions', 
+          'Answer the following questions.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.other) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Create answer key on new page - compact multi-column layout
       pdf.addPage();
       yPosition = margin;
       
-      pdf.setFontSize(16);
-      pdf.setFont('helvetica', 'bold');
+      // Answer Key header matching exam header style
+      pdf.setFontSize(14);
+      pdf.setFont('times', 'bold');
       pdf.text('Answer Key', pageWidth / 2, yPosition, { align: 'center' });
-      yPosition += lineHeight * 2;
-
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
+      yPosition += lineHeight;
       
-      questions.forEach((question, index) => {
-        if (yPosition > pageHeight - 20) {
+      // Add test title and version info
+      pdf.setFontSize(10);
+      pdf.setFont('times', 'normal');
+      pdf.text(testTitle + (versionLabel ? ` - Version ${versionLabel}` : ''), pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += lineHeight;
+      
+      // Add horizontal line
+      pdf.setLineWidth(0.3);
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      // Build answer key data - separate grid items from essay items
+      const gridAnswerKeyData: { num: number; answer: string }[] = [];
+      const essayAnswerKeyData: { num: number; answer: string; points: number }[] = [];
+      questionNumber = 1;
+      
+      // Track section start numbers for essay range display
+      const sectionStarts: Record<string, number> = {};
+      let runningNum = 1;
+      for (const [key, section] of Object.entries({ mcq: grouped.mcq, true_false: grouped.true_false, short_answer: grouped.short_answer, essay: grouped.essay, other: grouped.other })) {
+        sectionStarts[key] = runningNum;
+        runningNum += section.length;
+      }
+
+      for (const section of [grouped.mcq, grouped.true_false, grouped.short_answer, grouped.other]) {
+        for (const question of section) {
+          const correctAnswer = question.correct_answer ?? question.correctAnswer ?? '';
+          const questionType = (question.question_type || question.type || '').toLowerCase();
+          
+          let answer = '';
+          if (questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') {
+            if (typeof correctAnswer === 'number') {
+              answer = String.fromCharCode(65 + correctAnswer);
+            } else if (typeof correctAnswer === 'string' && /^[A-Da-d]$/.test(correctAnswer)) {
+              answer = correctAnswer.toUpperCase();
+            } else {
+              answer = String(correctAnswer).substring(0, 20);
+            }
+          } else if (questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') {
+            const val = String(correctAnswer).toLowerCase();
+            answer = (val === 'true' || val === 't') ? 'T' : 'F';
+          } else if (correctAnswer) {
+            answer = String(correctAnswer);
+          } else {
+            answer = 'See rubric';
+          }
+          
+          gridAnswerKeyData.push({ num: questionNumber, answer });
+          questionNumber++;
+        }
+      }
+
+      // Essay answers - full text, not truncated
+      for (const question of grouped.essay) {
+        const correctAnswer = question.correct_answer ?? question.correctAnswer ?? '';
+        const answer = correctAnswer ? String(correctAnswer) : 'Answers may vary. See rubric.';
+        essayAnswerKeyData.push({ num: questionNumber, answer, points: question.points || 5 });
+        questionNumber++;
+      }
+
+      // Render grid items in multi-column layout (4 columns)
+      if (gridAnswerKeyData.length > 0) {
+        pdf.setFontSize(10);
+        pdf.setFont('times', 'normal');
+        
+        const columns = 4;
+        const columnWidth = (pageWidth - margin * 2) / columns;
+        const itemHeight = 5;
+        const itemsPerColumn = Math.ceil((pageHeight - yPosition - 30) / itemHeight);
+        const maxItemsPerPage = itemsPerColumn * columns;
+        
+        let currentItem = 0;
+        const startY = yPosition;
+        
+        while (currentItem < gridAnswerKeyData.length) {
+          if (currentItem > 0 && currentItem % maxItemsPerPage === 0) {
+            pdf.addPage();
+            yPosition = margin + lineHeight;
+          }
+          
+          const pageStartItem = Math.floor(currentItem / maxItemsPerPage) * maxItemsPerPage;
+          const itemInPage = currentItem - pageStartItem;
+          const col = Math.floor(itemInPage / itemsPerColumn);
+          const row = itemInPage % itemsPerColumn;
+          
+          const x = margin + col * columnWidth;
+          const y = (currentItem >= maxItemsPerPage ? margin + lineHeight : startY) + row * itemHeight;
+          
+          const item = gridAnswerKeyData[currentItem];
+          pdf.text(`${item.num}.`, x + 8, y, { align: 'right' });
+          pdf.text(item.answer, x + 10, y);
+          
+          currentItem++;
+        }
+        
+        // Update yPosition after grid
+        const totalGridRows = Math.min(gridAnswerKeyData.length, itemsPerColumn);
+        yPosition = startY + totalGridRows * itemHeight + lineHeight;
+      }
+
+      // Render essay answers as full-text blocks
+      if (essayAnswerKeyData.length > 0) {
+        if (yPosition > pageHeight - 60) {
           pdf.addPage();
           yPosition = margin;
         }
-
-        let answer = '';
-        if (question.type === 'multiple-choice' && typeof question.correctAnswer === 'number') {
-          answer = String.fromCharCode(65 + question.correctAnswer);
-        } else {
-          answer = 'See rubric';
-        }
         
-        pdf.text(`${index + 1}. ${answer}`, margin, yPosition);
         yPosition += lineHeight;
-      });
+        pdf.setFontSize(11);
+        pdf.setFont('times', 'bold');
+        pdf.text('Essay (Sample Answers)', margin, yPosition);
+        yPosition += lineHeight * 1.5;
+        
+        for (const essayItem of essayAnswerKeyData) {
+          if (yPosition > pageHeight - 40) {
+            pdf.addPage();
+            yPosition = margin;
+          }
+          
+          // Essay number label
+          pdf.setFontSize(10);
+          pdf.setFont('times', 'bold');
+          pdf.text(`${essayItem.num}.`, margin, yPosition);
+          yPosition += lineHeight;
+          
+          // Full essay answer text - wrapped
+          pdf.setFont('times', 'normal');
+          const wrappedLines = pdf.splitTextToSize(essayItem.answer, pageWidth - margin * 2 - 10);
+          for (const line of wrappedLines) {
+            if (yPosition > pageHeight - 15) {
+              pdf.addPage();
+              yPosition = margin;
+            }
+            pdf.text(line, margin + 8, yPosition);
+            yPosition += lineHeight;
+          }
+          yPosition += lineHeight * 0.5;
+        }
+      }
 
       // Add watermarks if version label and test ID are provided
       if (versionLabel && testId) {
@@ -296,3 +498,134 @@ export const usePDFExport = () => {
     uploadToStorage
   };
 };
+
+// Helper function to add section header
+function addSectionHeader(
+  pdf: jsPDF, 
+  title: string, 
+  instruction: string, 
+  yPosition: number, 
+  margin: number, 
+  pageWidth: number,
+  pageHeight: number
+): number {
+  if (yPosition > pageHeight - 60) {
+    pdf.addPage();
+    yPosition = margin;
+  }
+
+  pdf.setFontSize(11);
+  pdf.setFont('times', 'bold');
+  pdf.text(title, margin, yPosition);
+  yPosition += 5;
+  
+  pdf.setFontSize(9);
+  pdf.setFont('times', 'italic');
+  pdf.text(instruction, margin, yPosition);
+  yPosition += 8;
+  
+  return yPosition;
+}
+
+// Helper function to add a question
+function addQuestion(
+  pdf: jsPDF,
+  question: any,
+  number: number,
+  yPosition: number,
+  margin: number,
+  pageWidth: number,
+  pageHeight: number,
+  lineHeight: number,
+  isEssay: boolean = false
+): number {
+  // Check if we need a new page
+  if (yPosition > pageHeight - 50) {
+    pdf.addPage();
+    yPosition = margin;
+  }
+
+  // Get question text - handle both field naming conventions
+  const questionText = question.question_text || question.question || 'Question text not available';
+  const questionType = (question.question_type || question.type || '').toLowerCase();
+  const rawChoices = question.choices || question.options;
+  
+  // Normalize choices to array of { key, text } for consistent rendering
+  const getMCQOptions = (): { key: string; text: string }[] => {
+    if (!rawChoices) return [];
+    
+    // Handle object format: { A: "text", B: "text", ... }
+    if (typeof rawChoices === 'object' && !Array.isArray(rawChoices)) {
+      return ['A', 'B', 'C', 'D', 'E', 'F']
+        .filter(key => rawChoices[key])
+        .map(key => ({ key, text: String(rawChoices[key]) }));
+    }
+    
+    // Handle array format: ["option1", "option2", ...]
+    if (Array.isArray(rawChoices)) {
+      return rawChoices.map((text, idx) => ({
+        key: String.fromCharCode(65 + idx),
+        text: typeof text === 'string' ? text : String(text)
+      }));
+    }
+    
+    return [];
+  };
+  
+  const mcqOptions = getMCQOptions();
+
+  // Question number and text
+  pdf.setFontSize(10);
+  pdf.setFont('times', 'bold');
+  pdf.text(`${number}.`, margin, yPosition);
+  
+  pdf.setFont('times', 'normal');
+  const questionLines = pdf.splitTextToSize(questionText, pageWidth - margin * 2 - 10);
+  pdf.text(questionLines, margin + 8, yPosition);
+  yPosition += questionLines.length * lineHeight;
+
+  // Add options for multiple choice
+  if ((questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') && mcqOptions.length > 0) {
+    yPosition += 3;
+    mcqOptions.forEach((option) => {
+      if (yPosition > pageHeight - 20) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+      
+      const optionLines = pdf.splitTextToSize(`${option.key}. ${option.text}`, pageWidth - margin * 2 - 15);
+      pdf.text(optionLines, margin + 15, yPosition);
+      yPosition += optionLines.length * lineHeight;
+    });
+  }
+
+  // Add True/False options
+  if (questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') {
+    yPosition += 3;
+    pdf.text('( ) True    ( ) False', margin + 15, yPosition);
+    yPosition += lineHeight;
+  }
+
+  // Add blank line for short answer
+  if (questionType === 'short_answer' || questionType === 'fill-blank' || questionType === 'fill_blank' || questionType === 'identification') {
+    yPosition += 3;
+    pdf.text('Answer: _____________________________________________', margin + 8, yPosition);
+    yPosition += lineHeight;
+  }
+
+  // Add space for essay
+  if (isEssay || questionType === 'essay') {
+    yPosition += 5;
+    for (let i = 0; i < 5; i++) {
+      if (yPosition > pageHeight - 15) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+      pdf.text('___________________________________________________________________________', margin, yPosition);
+      yPosition += lineHeight;
+    }
+  }
+
+  yPosition += lineHeight;
+  return yPosition;
+}
