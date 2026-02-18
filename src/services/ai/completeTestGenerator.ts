@@ -2,6 +2,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { IntelligentQuestionSelector } from "./intelligentSelector";
 import { generateQuestions } from "./generate";
 import type { BloomLevel, Difficulty } from "./classify";
+import { QuestionUniquenessStore, createQuestionFingerprint } from "./questionUniquenessChecker";
+import type { AnswerType, KnowledgeDimension } from "@/types/knowledge";
 
 export interface TOSRequirement {
   topic: string;
@@ -57,6 +59,10 @@ export class CompleteTestGenerator {
     const allSelectedQuestions: any[] = [];
     const stillMissing: TOSRequirement[] = [];
 
+    // Session-level dedup stores
+    const uniquenessStore = new QuestionUniquenessStore();
+    const allQuestionTexts: string[] = [];
+
     // Process each TOS requirement
     for (const req of requirements) {
       console.log(`\n📊 Processing: ${req.topic} | ${req.bloom_level} | ${req.difficulty} | Need: ${req.count}`);
@@ -65,20 +71,35 @@ export class CompleteTestGenerator {
       const existingQuestions = await this.queryExistingQuestions(req);
       console.log(`   ✓ Found ${existingQuestions.length} existing questions`);
 
-      if (existingQuestions.length >= req.count) {
+      // Filter existing questions for uniqueness before selection
+      const dedupedExisting = existingQuestions.filter(q => {
+        const qText = q.question_text || '';
+        if (this.isDuplicateByText(qText, allQuestionTexts)) return false;
+        return true;
+      });
+
+      if (dedupedExisting.length >= req.count) {
         // Sufficient questions exist - use intelligent selection
-        const selected = await this.selector.selectNonRedundant(existingQuestions, req.count);
+        const selected = await this.selector.selectNonRedundant(dedupedExisting, req.count);
+        for (const sq of selected) {
+          allQuestionTexts.push(sq.question_text || '');
+          this.registerFingerprint(uniquenessStore, sq);
+        }
         allSelectedQuestions.push(...selected);
         totalExisting += selected.length;
         console.log(`   ✓ Selected ${selected.length} from existing bank`);
       } else {
         // STEP 2: Activate AI Fallback - Generate missing questions
-        const needed = req.count - existingQuestions.length;
+        const needed = req.count - dedupedExisting.length;
         console.log(`   ⚠️ Missing ${needed} questions - Activating AI Generation`);
 
-        // Use existing questions first
-        allSelectedQuestions.push(...existingQuestions);
-        totalExisting += existingQuestions.length;
+        // Use existing questions first (deduped)
+        for (const eq of dedupedExisting) {
+          allQuestionTexts.push(eq.question_text || '');
+          this.registerFingerprint(uniquenessStore, eq);
+        }
+        allSelectedQuestions.push(...dedupedExisting);
+        totalExisting += dedupedExisting.length;
 
         // Generate missing questions with AI
         const aiGenerated = await this.generateMissingQuestions(
@@ -90,11 +111,25 @@ export class CompleteTestGenerator {
         );
 
         if (aiGenerated.length > 0) {
-          // STEP 3: Save all AI-generated questions to database
-          const savedQuestions = await this.saveAIQuestions(aiGenerated, user.id, testMetadata.tos_id);
+          // Filter AI questions for uniqueness before saving
+          const uniqueAI = aiGenerated.filter(q => {
+            const qText = q.question_text || '';
+            if (this.isDuplicateByText(qText, allQuestionTexts)) {
+              console.log(`   🔄 Rejected duplicate AI question: "${qText.substring(0, 60)}..."`);
+              return false;
+            }
+            return true;
+          });
+
+          // STEP 3: Save only unique AI-generated questions to database
+          const savedQuestions = await this.saveAIQuestions(uniqueAI, user.id, testMetadata.tos_id);
+          for (const sq of savedQuestions) {
+            allQuestionTexts.push(sq.question_text || '');
+            this.registerFingerprint(uniquenessStore, sq);
+          }
           allSelectedQuestions.push(...savedQuestions);
           totalAIGenerated += savedQuestions.length;
-          console.log(`   ✓ Generated and saved ${savedQuestions.length} AI questions`);
+          console.log(`   ✓ Generated and saved ${savedQuestions.length} unique AI questions (${aiGenerated.length - uniqueAI.length} duplicates rejected)`);
         }
 
         // Track any remaining gaps
@@ -112,14 +147,68 @@ export class CompleteTestGenerator {
     console.log(`   - Existing: ${totalExisting}`);
     console.log(`   - AI Generated: ${totalAIGenerated}`);
 
+    // ============= COMPLETION GATE: Enforce exact TOS count =============
+    const requiredTotal = requirements.reduce((sum, req) => sum + req.count, 0);
+    let completionAttempts = 0;
+    const MAX_COMPLETION_ATTEMPTS = 3;
+
+    while (allSelectedQuestions.length < requiredTotal && completionAttempts < MAX_COMPLETION_ATTEMPTS) {
+      completionAttempts++;
+      const shortfall = requiredTotal - allSelectedQuestions.length;
+      
+      console.log(`\n🔄 === COMPLETION GATE RETRY ${completionAttempts}/${MAX_COMPLETION_ATTEMPTS} ===`);
+      console.log(`   📊 Current: ${allSelectedQuestions.length}/${requiredTotal} (need ${shortfall} more)`);
+      
+      // Generate repair questions for the shortfall
+      try {
+        const repairReq = requirements[completionAttempts % requirements.length] || requirements[0];
+        
+        console.log(`   🤖 Generating ${shortfall} repair questions for ${repairReq.topic}...`);
+        
+        const repairQuestions = await this.generateMissingQuestions(
+          repairReq.topic,
+          repairReq.bloom_level as BloomLevel,
+          repairReq.difficulty as Difficulty,
+          shortfall,
+          user.id
+        );
+        
+        if (repairQuestions.length > 0) {
+          const savedRepair = await this.saveAIQuestions(repairQuestions, user.id, testMetadata.tos_id);
+          allSelectedQuestions.push(...savedRepair);
+          totalAIGenerated += savedRepair.length;
+          console.log(`   ✅ Added ${savedRepair.length} repair questions`);
+        }
+      } catch (error) {
+        console.error(`   ❌ Repair attempt ${completionAttempts} failed:`, error);
+      }
+      
+      console.log(`   📊 New total: ${allSelectedQuestions.length}/${requiredTotal}`);
+    }
+
+    // Final validation: TOS contract must be satisfied
+    if (allSelectedQuestions.length < requiredTotal) {
+      const shortfall = requiredTotal - allSelectedQuestions.length;
+      console.error(`❌ TOS CONTRACT VIOLATION: ${allSelectedQuestions.length}/${requiredTotal} questions`);
+      throw new Error(
+        `Test generation incomplete: generated ${allSelectedQuestions.length}/${requiredTotal} questions. ` +
+        `${shortfall} questions could not be generated. Please try again.`
+      );
+    }
+
     if (allSelectedQuestions.length === 0) {
       throw new Error("No questions could be generated or selected");
     }
 
+    // Trim to exact count if we have extras
+    const finalQuestions = allSelectedQuestions.slice(0, requiredTotal);
+    
+    console.log(`✅ TOS CONTRACT SATISFIED: ${finalQuestions.length}/${requiredTotal} questions`);
+
     // STEP 4: Generate Final Test Paper
     const testId = await this.assembleFinalTest(
       testTitle,
-      allSelectedQuestions,
+      finalQuestions,
       testMetadata,
       user.id
     );
@@ -128,11 +217,49 @@ export class CompleteTestGenerator {
 
     return {
       testId,
-      totalQuestions: allSelectedQuestions.length,
+      totalQuestions: finalQuestions.length,
       aiGeneratedCount: totalAIGenerated,
       existingQuestionsCount: totalExisting,
       missingRequirements: stillMissing
     };
+  }
+
+  /**
+   * Text similarity check using token overlap
+   */
+  private isDuplicateByText(text: string, existingTexts: string[], threshold = 0.7): boolean {
+    const tokenize = (t: string) => new Set(
+      t.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(w => w.length > 2)
+    );
+    const set1 = tokenize(text);
+    if (set1.size === 0) return false;
+    for (const existing of existingTexts) {
+      const set2 = tokenize(existing);
+      if (set2.size === 0) continue;
+      let intersection = 0;
+      for (const token of set1) { if (set2.has(token)) intersection++; }
+      if (intersection / Math.max(set1.size, set2.size) >= threshold) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Register a question in the uniqueness fingerprint store
+   */
+  private registerFingerprint(store: QuestionUniquenessStore, q: any): void {
+    const bloomMap: Record<string, string> = {
+      'Remembering': 'definition', 'Understanding': 'explanation', 'Applying': 'application',
+      'Analyzing': 'analysis', 'Evaluating': 'evaluation', 'Creating': 'design'
+    };
+    const answerType = (bloomMap[q.bloom_level] || 'explanation') as AnswerType;
+    const fp = createQuestionFingerprint(
+      q.question_text || '',
+      q.topic || '',
+      answerType,
+      q.bloom_level || 'Understanding',
+      (q.knowledge_dimension || 'conceptual') as KnowledgeDimension
+    );
+    store.register(fp);
   }
 
   /**
