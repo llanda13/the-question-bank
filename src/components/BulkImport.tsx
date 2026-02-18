@@ -30,7 +30,7 @@ interface ParsedQuestion {
   bloom_level?: string;
   difficulty?: string;
   knowledge_dimension?: string;
-  created_by: 'bulk_import';
+  created_by: 'teacher' | 'admin' | 'ai';
   approved: boolean;
   needs_review: boolean;
   ai_confidence_score?: number;
@@ -69,11 +69,6 @@ export default function BulkImport({
   const [selectedTopic, setSelectedTopic] = useState<string>('General');
   const [classificationResults, setClassificationResults] = useState<any[]>([]);
   const [showClassificationDetails, setShowClassificationDetails] = useState(false);
-  const [bulkMetadata, setBulkMetadata] = useState({
-    subject: '',
-    grade_level: '',
-    term: '',
-  });
 
   const { batchClassify, buildTaxonomyMatrix } = useTaxonomyClassification({
     useMLClassifier: true,
@@ -110,6 +105,7 @@ export default function BulkImport({
       'application/pdf': ['.pdf'],
     },
     multiple: false,
+    maxSize: 50 * 1024 * 1024, // 50MB limit
   });
 
   const previewCSV = (file: File) => {
@@ -238,18 +234,19 @@ export default function BulkImport({
           D: q.D || 'Option D'
         } : undefined,
         correct_answer: q.Correct || 'A',
-        created_by: 'bulk_import',
+        created_by: 'teacher',
         approved: false,
         needs_review: true,
-        subject: bulkMetadata.subject || undefined,
-        grade_level: bulkMetadata.grade_level || undefined,
-        term: bulkMetadata.term || undefined,
+        subject: undefined,
+        grade_level: undefined,
+        term: undefined,
       }));
 
       setProgress(50);
       setCurrentStep('Classifying questions with AI...');
 
       // Enhanced AI classification with confidence scoring
+      let classificationMethod = 'AI';
       try {
         const classificationInput = normalizedData.map(q => ({
           text: q.question_text,
@@ -283,10 +280,13 @@ export default function BulkImport({
 
         // Store classification results for detailed view
         setClassificationResults(classifications);
-
+        toast.success('AI classification completed successfully');
         setProgress(70);
       } catch (aiError) {
-        console.warn('AI classification failed, using fallback:', aiError);
+        console.warn('AI classification unavailable, using rule-based classification:', aiError);
+        classificationMethod = 'rule-based';
+        toast.info('Using rule-based classification (AI unavailable)');
+        setCurrentStep('Using rule-based classification...');
         
         normalizedData.forEach((question) => {
           if (!question.bloom_level) {
@@ -305,6 +305,7 @@ export default function BulkImport({
           question.ai_confidence_score = 0.6;
           question.needs_review = true;
         });
+        setProgress(70);
       }
 
       setProgress(90);
@@ -320,7 +321,7 @@ export default function BulkImport({
         bloom_level: q.bloom_level || 'understanding',
         difficulty: q.difficulty || 'average',
         knowledge_dimension: q.knowledge_dimension || 'conceptual',
-        created_by: 'bulk_import' as const,
+        created_by: 'teacher' as const,
         approved: false,
         ai_confidence_score: q.ai_confidence_score || 0.5,
         needs_review: (q.needs_review !== false)
@@ -442,9 +443,9 @@ export default function BulkImport({
         row.KnowledgeDimension ||
         row.knowledge_dimension ||
         row['Knowledge Dimension'],
-      subject: row.Subject || row.subject || bulkMetadata.subject || undefined,
-      grade_level: row['Grade Level'] || row.grade_level || bulkMetadata.grade_level || undefined,
-      term: row.Term || row.term || bulkMetadata.term || undefined,
+      subject: row.Subject || row.subject || undefined,
+      grade_level: row['Grade Level'] || row.grade_level || undefined,
+      term: row.Term || row.term || undefined,
       tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : row.Tags.split(',').map((t: string) => t.trim())) : undefined,
     };
   };
@@ -493,7 +494,7 @@ export default function BulkImport({
           const normalized = normalizeRow(row);
           normalizedData.push({
             ...normalized,
-            created_by: 'bulk_import',
+            created_by: 'teacher',
             approved: false,
             needs_review: true,
           } as ParsedQuestion);
@@ -509,7 +510,8 @@ export default function BulkImport({
       setProgress(40);
       setCurrentStep('Classifying questions with AI...');
 
-      // Classify questions using AI
+      // Classify questions using AI with fallback to rule-based
+      let classificationMethod = 'AI';
       try {
         const classificationInput = normalizedData.map(q => ({
           text: q.question_text,
@@ -542,15 +544,15 @@ export default function BulkImport({
         });
 
         setProgress(60);
+        toast.success('AI classification completed successfully');
         setCurrentStep('AI classification completed successfully');
       } catch (aiError) {
-        console.warn('AI classification failed, using fallback:', aiError);
-        toast.warning(
-          'AI classification unavailable, using rule-based classification'
-        );
+        console.warn('AI classification unavailable, using rule-based classification:', aiError);
+        classificationMethod = 'rule-based';
+        toast.info('Using rule-based classification (AI unavailable)');
 
         setProgress(50);
-        setCurrentStep('Applying fallback classification...');
+        setCurrentStep('Applying rule-based classification...');
 
         // Fallback to local classification
         normalizedData.forEach((question) => {
@@ -572,11 +574,18 @@ export default function BulkImport({
         });
 
         setProgress(60);
-        setCurrentStep('Fallback classification completed');
+        setCurrentStep('Rule-based classification completed');
       }
 
       setProgress(80);
       setCurrentStep('Saving to database...');
+
+      // Valid knowledge dimensions from database constraint
+      const validKnowledgeDimensions = ['factual', 'conceptual', 'procedural', 'metacognitive'];
+      const normalizeKnowledgeDimension = (val: string | undefined): string => {
+        const normalized = (val || 'conceptual').toLowerCase().trim();
+        return validKnowledgeDimensions.includes(normalized) ? normalized : 'conceptual';
+      };
 
       // Ensure all required fields are present with proper types
       const questionsWithDefaults = normalizedData.map(q => ({
@@ -585,10 +594,10 @@ export default function BulkImport({
         question_type: (q.question_type as 'mcq' | 'true_false' | 'essay' | 'short_answer') || 'mcq',
         choices: q.choices || {},
         correct_answer: q.correct_answer || '',
-        bloom_level: q.bloom_level || 'understanding',
-        difficulty: q.difficulty || 'average',
-        knowledge_dimension: q.knowledge_dimension || 'conceptual',
-        created_by: 'bulk_import' as const,
+        bloom_level: (q.bloom_level || 'understanding').toLowerCase(),
+        difficulty: (q.difficulty || 'average').toLowerCase(),
+        knowledge_dimension: normalizeKnowledgeDimension(q.knowledge_dimension),
+        created_by: 'teacher' as const,
         approved: false,
         ai_confidence_score: q.ai_confidence_score || 0.5,
         needs_review: (q.needs_review !== false)
@@ -720,64 +729,6 @@ export default function BulkImport({
         </CardContent>
       </Card>
 
-      {/* Bulk Metadata */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" />
-            Bulk Metadata (Optional)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            Set default metadata that will be applied to all imported questions unless overridden in the CSV.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <label htmlFor="bulk-subject" className="text-sm font-medium">
-                Subject
-              </label>
-              <input
-                id="bulk-subject"
-                type="text"
-                placeholder="e.g., Mathematics"
-                value={bulkMetadata.subject}
-                onChange={(e) => setBulkMetadata({ ...bulkMetadata, subject: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="bulk-grade" className="text-sm font-medium">
-                Grade Level
-              </label>
-              <input
-                id="bulk-grade"
-                type="text"
-                placeholder="e.g., Grade 10"
-                value={bulkMetadata.grade_level}
-                onChange={(e) => setBulkMetadata({ ...bulkMetadata, grade_level: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="bulk-term" className="text-sm font-medium">
-                Term
-              </label>
-              <input
-                id="bulk-term"
-                type="text"
-                placeholder="e.g., First Quarter"
-                value={bulkMetadata.term}
-                onChange={(e) => setBulkMetadata({ ...bulkMetadata, term: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* File Upload */}
       <Card>
         <CardHeader>
@@ -805,7 +756,7 @@ export default function BulkImport({
                   Drag & drop a CSV or PDF file here, or click to select
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Supports .csv and .pdf files up to 10MB
+                  Supports .csv and .pdf files up to 50MB
                 </p>
               </div>
             )}
