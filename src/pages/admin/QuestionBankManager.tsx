@@ -273,7 +273,7 @@ export default function QuestionBankManager() {
           <h1 className="text-3xl font-bold">Question Bank Manager</h1>
           <p className="text-muted-foreground">Full CRUD access to master question repository</p>
         </div>
-        <Button onClick={() => setIsCreating(true)}>
+        <Button onClick={() => setIsCreating(true)} size="lg">
           <Plus className="h-4 w-4 mr-2" />
           Add Question
         </Button>
