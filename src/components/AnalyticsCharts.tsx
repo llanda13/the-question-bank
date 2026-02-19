@@ -532,20 +532,22 @@ export const AnalyticsCharts = () => {
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="max-h-[400px]">
-              <BarChart data={analytics.topicAnalysis} layout="horizontal">
+              <BarChart data={analytics.topicAnalysis} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
                 <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                 <YAxis 
                   type="category" 
                   dataKey="topic" 
                   stroke="hsl(var(--muted-foreground))" 
-                  fontSize={12}
-                  width={120}
+                  fontSize={11}
+                  width={150}
+                  tickLine={false}
                 />
                 <Bar 
                   dataKey="questionCount" 
                   radius={[0, 4, 4, 0]}
                   fill="hsl(var(--primary))"
+                  label={{ position: 'right', fontSize: 11, fill: 'hsl(var(--foreground))' }}
                 />
                 <ChartTooltip
                   content={({ active, payload, label }) => {
