@@ -8,7 +8,8 @@ import { useAuth } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Shield, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Shield, Eye, EyeOff, CheckCircle, XCircle, Database, Bell } from 'lucide-react';
 
 function PasswordRequirement({ met, label }: { met: boolean; label: string }) {
   return (
@@ -27,6 +28,7 @@ export default function Settings() {
   const { user, profile } = useAuth();
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [savingProfile, setSavingProfile] = useState(false);
+  const [healthAlerts, setHealthAlerts] = useState(true);
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -240,6 +242,85 @@ export default function Settings() {
               <li>All other sessions are invalidated after a password change</li>
               <li>Account locks after multiple failed login attempts (managed by Supabase Auth)</li>
             </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Database Maintenance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="h-5 w-5" />
+            Database Maintenance
+          </CardTitle>
+          <CardDescription>Manage database optimization and cleanup tasks</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Cleanup Old Presence Records</p>
+              <p className="text-sm text-muted-foreground">Remove stale collaboration presence entries older than 1 hour</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const { error } = await supabase.rpc('cleanup_old_presence');
+                  if (error) throw error;
+                  toast.success('Old presence records cleaned up');
+                } catch (err: any) {
+                  toast.error(err.message || 'Cleanup failed');
+                }
+              }}
+            >
+              Run Cleanup
+            </Button>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Recalculate Similarity Metrics</p>
+              <p className="text-sm text-muted-foreground">Refresh question similarity calculations across the bank</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const { error } = await supabase.rpc('calculate_similarity_metrics');
+                  if (error) throw error;
+                  toast.success('Similarity metrics recalculated');
+                } catch (err: any) {
+                  toast.error(err.message || 'Recalculation failed');
+                }
+              }}
+            >
+              Recalculate
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* System Health Alerts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            System Health Alerts
+          </CardTitle>
+          <CardDescription>Configure alerting for system-level issues</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Receive alerts about system issues</p>
+              <p className="text-sm text-muted-foreground">Get notified about database errors, high latency, or failed operations</p>
+            </div>
+            <Switch
+              checked={healthAlerts}
+              onCheckedChange={setHealthAlerts}
+            />
           </div>
         </CardContent>
       </Card>
