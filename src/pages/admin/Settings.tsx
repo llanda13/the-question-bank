@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,45 @@ export default function Settings() {
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [savingProfile, setSavingProfile] = useState(false);
   const [healthAlerts, setHealthAlerts] = useState(true);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
+  // Load persisted settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('system_settings')
+          .select('key, value')
+          .eq('key', 'health_alerts_enabled')
+          .single();
+        if (!error && data) {
+          setHealthAlerts(data.value === true);
+        }
+      } catch {
+        // Use default
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  const handleToggleHealthAlerts = async (checked: boolean) => {
+    setHealthAlerts(checked);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert(
+          { key: 'health_alerts_enabled', value: checked as any, updated_at: new Date().toISOString(), updated_by: user?.id },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      toast.success(`System health alerts ${checked ? 'enabled' : 'disabled'}`);
+    } catch (err: any) {
+      setHealthAlerts(!checked); // revert
+      toast.error(err.message || 'Failed to update setting');
+    }
+  };
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -319,7 +358,8 @@ export default function Settings() {
             </div>
             <Switch
               checked={healthAlerts}
-              onCheckedChange={setHealthAlerts}
+              onCheckedChange={handleToggleHealthAlerts}
+              disabled={loadingSettings}
             />
           </div>
         </CardContent>
