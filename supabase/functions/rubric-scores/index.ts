@@ -21,6 +21,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Auth check for all operations
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+    const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } })
+    const token = authHeader.replace('Bearer ', '')
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token)
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     
@@ -28,9 +40,6 @@ Deno.serve(async (req) => {
 
     const url = new URL(req.url)
     console.log(`${req.method} ${url.pathname}`)
-
-    // Get authorization header for user context
-    const authHeader = req.headers.get('Authorization')
 
     switch (req.method) {
       case 'GET': {

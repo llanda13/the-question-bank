@@ -12,18 +12,33 @@ serve(async (req) => {
   }
 
   try {
+    // Auth check
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { action, questionId, classification, confidence, notes } = await req.json();
+
+    // Input validation
+    if (!action || typeof action !== 'string') {
+      return new Response(JSON.stringify({ error: 'action is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (!questionId || typeof questionId !== 'string') {
+      return new Response(JSON.stringify({ error: 'questionId is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const authHeader = req.headers.get('Authorization')!;
     const token = authHeader.replace('Bearer ', '');
     const { data: { user } } = await supabaseClient.auth.getUser(token);
 
-    if (!user) throw new Error('Unauthorized');
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     switch (action) {
       case 'validate': {
