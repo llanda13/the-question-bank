@@ -62,6 +62,19 @@ serve(async (req) => {
   let errorType = '';
 
   try {
+    // Auth check
+    const authHeaderCheck = req.headers.get('Authorization');
+    if (!authHeaderCheck?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const { createClient: createAnonClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    const anonClient = createAnonClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeaderCheck } } });
+    const authToken = authHeaderCheck.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(authToken);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { tos_id, request } = await req.json();
     
     // Validate input
@@ -73,6 +86,20 @@ serve(async (req) => {
     }
 
     const { topic, bloom_level, difficulty, count = 5 } = request;
+
+    // Input validation
+    if (count > 50) {
+      return new Response(
+        JSON.stringify({ error: 'Maximum 50 questions per request' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    if (topic && topic.length > 500) {
+      return new Response(
+        JSON.stringify({ error: 'Topic must be at most 500 characters' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     console.log('Generating questions for:', { tos_id, topic, bloom_level, difficulty, count });
 
