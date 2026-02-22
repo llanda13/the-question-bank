@@ -25,7 +25,7 @@ function PasswordRequirement({ met, label }: { met: boolean; label: string }) {
 }
 
 export default function Settings() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [savingProfile, setSavingProfile] = useState(false);
   const [healthAlerts, setHealthAlerts] = useState(true);
@@ -96,6 +96,7 @@ export default function Settings() {
         .update({ full_name: fullName })
         .eq('id', user.id);
       if (error) throw error;
+      await refreshProfile();
       toast.success('Profile updated successfully');
     } catch (error: any) {
       toast.error(error.message || 'Failed to update profile');
