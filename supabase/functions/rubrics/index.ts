@@ -46,6 +46,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
+    // Role check - teacher or admin for write ops, any auth for reads
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     
@@ -119,6 +120,11 @@ Deno.serve(async (req) => {
       }
 
       case 'POST': {
+        // Role check for write operations
+        const { data: postRole } = await supabase.rpc('get_user_role', { user_id: claimsData.claims.sub });
+        if (!postRole || !['admin', 'teacher'].includes(postRole)) {
+          return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
         const body: CreateRubricRequest = await req.json()
 
         if (!body.title || !body.criteria || body.criteria.length === 0) {
@@ -185,6 +191,11 @@ Deno.serve(async (req) => {
       }
 
       case 'PUT': {
+        // Role check for write operations
+        const { data: putRole } = await supabase.rpc('get_user_role', { user_id: claimsData.claims.sub });
+        if (!putRole || !['admin', 'teacher'].includes(putRole)) {
+          return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
         if (!rubricId || rubricId === 'rubrics') {
           return new Response(
             JSON.stringify({ error: 'Rubric ID required for update' }),
@@ -254,6 +265,11 @@ Deno.serve(async (req) => {
       }
 
       case 'DELETE': {
+        // Role check for write operations
+        const { data: delRole } = await supabase.rpc('get_user_role', { user_id: claimsData.claims.sub });
+        if (!delRole || !['admin', 'teacher'].includes(delRole)) {
+          return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
         if (!rubricId || rubricId === 'rubrics') {
           return new Response(
             JSON.stringify({ error: 'Rubric ID required for deletion' }),
