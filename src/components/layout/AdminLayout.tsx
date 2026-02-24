@@ -86,7 +86,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       {/* Sidebar - White background */}
       <div 
         className={cn(
-          "fixed top-0 left-0 flex flex-col h-screen bg-card border-r border-border transition-all duration-300 z-50",
+          "fixed top-0 left-0 flex flex-col h-screen bg-admin-sidebar border-r border-border transition-all duration-300 z-50",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -197,7 +197,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Main Content - Vivid Purple background */}
       <main className={cn(
-        "flex-1 overflow-auto transition-all duration-300 bg-secondary/5",
+        "flex-1 overflow-auto transition-all duration-300 bg-admin-content/20",
         collapsed ? "ml-16" : "ml-64"
       )}>
         {children}

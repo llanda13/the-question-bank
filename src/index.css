@@ -72,6 +72,10 @@ All colors MUST be HSL.
     --sidebar-border: 220 13% 91%;
 
     --sidebar-ring: 157 82% 24%;
+
+    /* Admin-specific palette */
+    --admin-sidebar-bg: 0 0% 100%;
+    --admin-content-bg: 272 65% 46%;
   }
 
   .dark {
@@ -110,6 +114,10 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Keep admin palette consistent in dark mode */
+    --admin-sidebar-bg: 0 0% 100%;
+    --admin-content-bg: 272 65% 46%;
   }
 }
 
