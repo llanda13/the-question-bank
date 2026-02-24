@@ -140,11 +140,7 @@ export default function Auth() {
                 </Button>
               </form>
               
-              <div className="mt-4 p-4 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground mb-2">Demo Admin Account:</p>
-                <p className="text-xs font-mono">demonstration595@gmail.com</p>
-                <p className="text-xs font-mono">admin123456789</p>
-              </div>
+            
             </TabsContent>
             
             <TabsContent value="signup">
