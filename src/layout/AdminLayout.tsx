@@ -82,11 +82,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex">
+    <div className="min-h-screen text-foreground flex">
       {/* Sidebar - White background */}
       <div 
         className={cn(
-          "fixed top-0 left-0 flex flex-col h-screen bg-admin-sidebar border-r border-border transition-all duration-300 z-50",
+          "fixed top-0 left-0 flex flex-col h-screen bg-card border-r border-border transition-all duration-300 z-50 shadow-sm",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -127,7 +127,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 group",
                   active 
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
-                    : "text-foreground/80 hover:bg-muted hover:text-foreground"
+                    : "text-foreground/70 hover:bg-muted hover:text-foreground"
                 )}
               >
                 <Icon className="w-5 h-5 shrink-0" />
@@ -161,7 +161,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200",
                   active 
                     ? "bg-primary text-primary-foreground" 
-                    : "text-foreground/80 hover:bg-muted hover:text-foreground"
+                    : "text-foreground/70 hover:bg-muted hover:text-foreground"
                 )}
               >
                 <Icon className="w-5 h-5 shrink-0" />
@@ -172,7 +172,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           
           <button
             onClick={handleSignOut}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 w-full text-foreground/80 hover:bg-muted hover:text-foreground"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 w-full text-foreground/70 hover:bg-muted hover:text-foreground"
           >
             <LogOut className="w-5 h-5 shrink-0" />
             {!collapsed && <div className="font-medium">Sign Out</div>}
@@ -195,9 +195,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         )}
       </div>
 
-      {/* Main Content - Vivid Purple background */}
+      {/* Main Content - Vivid Purple (secondary) background */}
       <main className={cn(
-        "flex-1 overflow-auto transition-all duration-300 bg-admin-content/20",
+        "flex-1 overflow-auto transition-all duration-300 bg-secondary/10",
         collapsed ? "ml-16" : "ml-64"
       )}>
         {children}
