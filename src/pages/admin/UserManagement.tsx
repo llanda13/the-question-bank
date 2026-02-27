@@ -73,17 +73,12 @@ export default function UserManagement() {
 
   const updateUserRole = async (userId: string, newRole: string) => {
     try {
-      // Delete existing roles for this user
-      await supabase.from('user_roles').delete().eq('user_id', userId);
+      const { error } = await supabase.rpc('assign_user_role', {
+        target_user_id: userId,
+        new_role: newRole,
+      });
 
-      // Only insert if a valid role is selected
-      if (newRole === 'admin' || newRole === 'teacher') {
-        const { error } = await supabase
-          .from('user_roles')
-          .insert([{ user_id: userId, role: newRole }]);
-
-        if (error) throw error;
-      }
+      if (error) throw error;
 
       toast({
         title: 'Success',
@@ -91,11 +86,14 @@ export default function UserManagement() {
       });
 
       fetchUsers();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating role:', error);
+      const message = error?.message?.includes('your own admin role')
+        ? 'Cannot remove your own admin role'
+        : 'Failed to update user role';
       toast({
         title: 'Error',
-        description: 'Failed to update user role',
+        description: message,
         variant: 'destructive',
       });
     }
