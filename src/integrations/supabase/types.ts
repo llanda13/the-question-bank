@@ -1994,6 +1994,10 @@ export type Database = {
     }
     Functions: {
       assign_admin_role: { Args: { user_email: string }; Returns: undefined }
+      assign_user_role: {
+        Args: { new_role: string; target_user_id: string }
+        Returns: undefined
+      }
       calculate_similarity_metrics: {
         Args: never
         Returns: {
