@@ -1778,6 +1778,7 @@ export type Database = {
       tos_entries: {
         Row: {
           bloom_distribution: Json | null
+          checked_by: string | null
           course: string
           created_at: string
           created_by: string | null
@@ -1799,6 +1800,7 @@ export type Database = {
         }
         Insert: {
           bloom_distribution?: Json | null
+          checked_by?: string | null
           course: string
           created_at?: string
           created_by?: string | null
@@ -1820,6 +1822,7 @@ export type Database = {
         }
         Update: {
           bloom_distribution?: Json | null
+          checked_by?: string | null
           course?: string
           created_at?: string
           created_by?: string | null

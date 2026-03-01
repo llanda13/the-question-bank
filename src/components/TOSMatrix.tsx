@@ -66,7 +66,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
     .topic-cell { text-align: left; padding-left: 8px; min-width: 120px; }
     .item-nums { font-size: 7.5pt; display: block; color: #333; }
     .sig-section { display: flex; justify-content: space-between; margin-top: 30px; }
-    .sig-block { text-align: center; width: 40%; }
+    .sig-block { text-align: center; width: 30%; }
     .sig-line { border-top: 1px solid #000; margin-top: 30px; padding-top: 4px; font-weight: bold; }
     .sig-title { font-size: 9pt; color: #555; }
     .total-row td { font-weight: bold; background-color: #f5f5f5 !important; }
@@ -192,10 +192,15 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
         <div class="sig-block">
           <div>Prepared by:</div>
           <div class="sig-line">${data.prepared_by || ''}</div>
-          ${data.prepared_by ? '<div class="sig-title">Teacher</div>' : ''}
+          ${data.prepared_by ? '<div class="sig-title">Instructor</div>' : ''}
         </div>
         <div class="sig-block">
-          <div>Noted by:</div>
+          <div>Checked and Reviewed by:</div>
+          <div class="sig-line">${data.checked_by || ''}</div>
+          ${data.checked_by ? '<div class="sig-title">Program Chair</div>' : ''}
+        </div>
+        <div class="sig-block">
+          <div>Approved by:</div>
           <div class="sig-line">${data.noted_by || ''}</div>
           ${data.noted_by ? '<div class="sig-title">Dean</div>' : ''}
         </div>
@@ -391,13 +396,18 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
 
         {/* Signature Section */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px' }}>
-          <div style={{ textAlign: 'center', width: '40%' }}>
+          <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Prepared by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.prepared_by || ''}</div>
-            {data.prepared_by && <div style={{ fontSize: '9pt', color: '#555' }}>Teacher</div>}
+            {data.prepared_by && <div style={{ fontSize: '9pt', color: '#555' }}>Instructor</div>}
           </div>
-          <div style={{ textAlign: 'center', width: '40%' }}>
-            <div>Noted by:</div>
+          <div style={{ textAlign: 'center', width: '30%' }}>
+            <div>Checked and Reviewed by:</div>
+            <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.checked_by || ''}</div>
+            {data.checked_by && <div style={{ fontSize: '9pt', color: '#555' }}>Program Chair</div>}
+          </div>
+          <div style={{ textAlign: 'center', width: '30%' }}>
+            <div>Approved by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.noted_by || ''}</div>
             {data.noted_by && <div style={{ fontSize: '9pt', color: '#555' }}>Dean</div>}
           </div>

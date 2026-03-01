@@ -180,17 +180,25 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
         <div className="text-left">
           <div className="font-semibold mb-16">Prepared by:</div>
           <div className="text-center">
-            <div className="border-b border-black w-64 mb-1"></div>
+            <div className="border-b border-black w-48 mb-1"></div>
             <div className="font-bold">{data.preparedBy || 'MICHELLE C. ELAPE, MIT'}</div>
             <div className="text-sm italic">Instructor</div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="font-semibold mb-16">Noted:</div>
+        <div className="text-center">
+          <div className="font-semibold mb-16">Checked and Reviewed by:</div>
           <div className="text-center">
-            <div className="border-b border-black w-64 mb-1"></div>
+            <div className="border-b border-black w-48 mb-1"></div>
+            <div className="font-bold">{data.checkedBy || ''}</div>
+            <div className="text-sm italic">Program Chair</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="font-semibold mb-16">Approved by:</div>
+          <div className="text-center">
+            <div className="border-b border-black w-48 mb-1"></div>
             <div className="font-bold">{data.notedBy || 'JEANIE R. DELOS ARCOS, MIT'}</div>
-            <div className="text-sm italic">Associate Dean</div>
+            <div className="text-sm italic">Dean</div>
           </div>
         </div>
       </div>
