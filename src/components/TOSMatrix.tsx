@@ -189,21 +189,21 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
         </tbody>
       </table>
       <div class="sig-section">
-        <div class="sig-block">
-          <div>Prepared by:</div>
-          <div class="sig-line">${data.prepared_by || ''}</div>
-          ${data.prepared_by ? '<div class="sig-title">Instructor</div>' : ''}
-        </div>
-        <div class="sig-block">
-          <div>Checked and Reviewed by:</div>
-          <div class="sig-line">${data.checked_by || ''}</div>
-          ${data.checked_by ? '<div class="sig-title">Program Chair</div>' : ''}
-        </div>
-        <div class="sig-block">
-          <div>Approved by:</div>
-          <div class="sig-line">${data.noted_by || ''}</div>
-          ${data.noted_by ? '<div class="sig-title">Dean</div>' : ''}
-        </div>
+          <div class="sig-block">
+            <div>Prepared by:</div>
+            <div class="sig-line">${data.prepared_by || ''}</div>
+            <div class="sig-title">Instructor</div>
+          </div>
+          <div class="sig-block">
+            <div>Checked and Reviewed by:</div>
+            <div class="sig-line">${data.checked_by || ''}</div>
+            <div class="sig-title">Program Chair</div>
+          </div>
+          <div class="sig-block">
+            <div>Approved by:</div>
+            <div class="sig-line">${data.noted_by || ''}</div>
+            <div class="sig-title">Dean</div>
+          </div>
       </div>
     `;
   }, [data, distribution]);
@@ -399,17 +399,17 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
           <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Prepared by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.prepared_by || ''}</div>
-            {data.prepared_by && <div style={{ fontSize: '9pt', color: '#555' }}>Instructor</div>}
+            <div style={{ fontSize: '9pt', color: '#555' }}>Instructor</div>
           </div>
           <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Checked and Reviewed by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.checked_by || ''}</div>
-            {data.checked_by && <div style={{ fontSize: '9pt', color: '#555' }}>Program Chair</div>}
+            <div style={{ fontSize: '9pt', color: '#555' }}>Program Chair</div>
           </div>
           <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Approved by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.noted_by || ''}</div>
-            {data.noted_by && <div style={{ fontSize: '9pt', color: '#555' }}>Dean</div>}
+            <div style={{ fontSize: '9pt', color: '#555' }}>Dean</div>
           </div>
         </div>
       </div>
