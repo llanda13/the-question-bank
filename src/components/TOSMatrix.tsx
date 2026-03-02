@@ -399,7 +399,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
           <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Prepared by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.prepared_by || ''}</div>
-            <div style={{ fontSize: '9pt', color: '#555' }}>Instructor</div>
+            <div style={{ fontSize: '9pt', color: '#555' }}></div>
           </div>
           <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Checked and Reviewed by:</div>
@@ -409,7 +409,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
           <div style={{ textAlign: 'center', width: '30%' }}>
             <div>Approved by:</div>
             <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.noted_by || ''}</div>
-            <div style={{ fontSize: '9pt', color: '#555' }}>Dean</div>
+            <div style={{ fontSize: '9pt', color: '#555' }}></div>
           </div>
         </div>
       </div>
