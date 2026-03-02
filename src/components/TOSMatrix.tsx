@@ -48,7 +48,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   const thStyle: React.CSSProperties = {
     border: '1.5px solid #000',
     padding: '4px 6px',
-    backgroundColor: '#e8f5e9',
+    backgroundColor: '#D4EFDF',
     fontWeight: 'bold',
     fontSize: '9.5pt',
     textAlign: 'center',
@@ -115,7 +115,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       <!-- ISO Document Header -->
       <div style="display:flex;align-items:flex-start;gap:12pt;margin-bottom:8pt;font-family:'Times New Roman',Times,serif;">
         <div style="flex-shrink:0;width:72pt;height:72pt;">
-          <img src="/images/institution-logo.png" alt="Logo" style="width:72pt;height:72pt;object-fit:contain;background:#fff;" crossorigin="anonymous" />
+          <img src="/images/institution-logo.png" alt="Logo" style="width:72pt;height:72pt;object-fit:contain;background:#ffffff;border-radius:0;" crossorigin="anonymous" />
         </div>
         <div style="flex:1;text-align:left;padding-top:2pt;">
           <div style="font-weight:bold;font-size:11pt;text-transform:uppercase;">AGUSAN DEL SUR STATE COLLEGE OF AGRICULTURE AND TECHNOLOGY</div>
@@ -200,17 +200,17 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       <div class="sig-section">
         <div class="sig-block">
           <div style="font-size:9pt;margin-bottom:4px;">Prepared by:</div>
-          <div style="margin-top:20px;padding-top:4px;font-weight:bold;text-transform:uppercase;">${data.prepared_by || '________________________'}</div>
+          <div style="margin-top:20px;font-weight:bold;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:2px;display:inline-block;min-width:160px;">${data.prepared_by || '\u00A0'}</div>
           <div class="sig-title" style="font-style:italic">Instructor</div>
         </div>
         <div class="sig-block">
           <div style="font-size:9pt;margin-bottom:4px;">Checked and Reviewed by:</div>
-          <div style="margin-top:20px;padding-top:4px;font-weight:bold;text-transform:uppercase;">${data.checked_by || '________________________'}</div>
+          <div style="margin-top:20px;font-weight:bold;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:2px;display:inline-block;min-width:160px;">${data.checked_by || '\u00A0'}</div>
           <div class="sig-title" style="font-style:italic">Program Chair</div>
         </div>
         <div class="sig-block">
           <div style="font-size:9pt;margin-bottom:4px;">Approved by:</div>
-          <div style="margin-top:20px;padding-top:4px;font-weight:bold;text-transform:uppercase;">${data.noted_by || '________________________'}</div>
+          <div style="margin-top:20px;font-weight:bold;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:2px;display:inline-block;min-width:160px;">${data.noted_by || '\u00A0'}</div>
           <div class="sig-title" style="font-style:italic">Dean</div>
         </div>
       </div>
@@ -228,7 +228,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
     .meta-grid .value { text-decoration: underline; margin-left: 4px; }
     table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 8px; }
     th, td { border: 1.5px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; font-size: 9.5pt; }
-    th { background-color: #e8f5e9 !important; font-weight: bold; }
+    th { background-color: #D4EFDF !important; font-weight: bold; }
     .item-nums { font-size: 7.5pt; display: block; color: #333; }
     .sig-section { display: flex; justify-content: space-between; margin-top: 30px; font-size: 10pt; }
     .sig-block { text-align: center; width: 30%; }
@@ -444,11 +444,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             <div style={{ fontSize: '9pt', marginBottom: '4px' }}>Prepared by:</div>
             <div style={{
               marginTop: '20px',
-              paddingTop: '4px',
               fontWeight: 'bold',
-              textTransform: 'uppercase',
+              textTransform: 'uppercase' as const,
+              borderBottom: '1px solid #000',
+              paddingBottom: '2px',
+              display: 'inline-block',
+              minWidth: '160px',
             }}>
-              {data.prepared_by || '________________________'}
+              {data.prepared_by || '\u00A0'}
             </div>
             <div style={{ fontSize: '9pt', fontStyle: 'italic' }}>Instructor</div>
           </div>
@@ -456,11 +459,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             <div style={{ fontSize: '9pt', marginBottom: '4px' }}>Checked and Reviewed by:</div>
             <div style={{
               marginTop: '20px',
-              paddingTop: '4px',
               fontWeight: 'bold',
-              textTransform: 'uppercase',
+              textTransform: 'uppercase' as const,
+              borderBottom: '1px solid #000',
+              paddingBottom: '2px',
+              display: 'inline-block',
+              minWidth: '160px',
             }}>
-              {data.checked_by || '________________________'}
+              {data.checked_by || '\u00A0'}
             </div>
             <div style={{ fontSize: '9pt', fontStyle: 'italic' }}>Program Chair</div>
           </div>
@@ -468,11 +474,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             <div style={{ fontSize: '9pt', marginBottom: '4px' }}>Approved by:</div>
             <div style={{
               marginTop: '20px',
-              paddingTop: '4px',
               fontWeight: 'bold',
-              textTransform: 'uppercase',
+              textTransform: 'uppercase' as const,
+              borderBottom: '1px solid #000',
+              paddingBottom: '2px',
+              display: 'inline-block',
+              minWidth: '160px',
             }}>
-              {data.noted_by || '________________________'}
+              {data.noted_by || '\u00A0'}
             </div>
             <div style={{ fontSize: '9pt', fontStyle: 'italic' }}>Dean</div>
           </div>
