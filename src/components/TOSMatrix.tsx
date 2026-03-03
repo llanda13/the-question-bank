@@ -48,7 +48,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   const thStyle: React.CSSProperties = {
     border: '1.5px solid #000',
     padding: '4px 6px',
-    backgroundColor: '#D4EFDF',
+    backgroundColor: '#91E291',
     fontWeight: 'bold',
     fontSize: '9.5pt',
     textAlign: 'center',
@@ -228,7 +228,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
     .meta-grid .value { text-decoration: underline; margin-left: 4px; }
     table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 8px; }
     th, td { border: 1.5px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; font-size: 9.5pt; }
-    th { background-color: #D4EFDF !important; font-weight: bold; }
+    th { background-color: #91E291 !important; font-weight: bold; }
     .item-nums { font-size: 7.5pt; display: block; color: #333; }
     .sig-section { display: flex; justify-content: space-between; margin-top: 30px; font-size: 10pt; }
     .sig-block { text-align: center; width: 30%; }
