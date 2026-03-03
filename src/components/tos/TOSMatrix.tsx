@@ -112,7 +112,7 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
         <table className="w-full border-collapse">
           <thead>
             {/* Main Header Row */}
-            <tr style={{ backgroundColor: '#D4EFDF' }}>
+            <tr style={{ backgroundColor: '#91E291' }}>
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-48">TOPIC</th>
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-24">NO. OF HOURS</th>
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-24">PERCENTAGE</th>
@@ -121,13 +121,13 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-20">TOTAL</th>
             </tr>
             {/* Difficulty Level Row */}
-            <tr style={{ backgroundColor: '#D4EFDF' }}>
+            <tr style={{ backgroundColor: '#91E291' }}>
               <th colSpan={2} className="border border-black p-1 font-bold text-center">EASY (30%)</th>
               <th colSpan={2} className="border border-black p-1 font-bold text-center">AVERAGE (40%)</th>
               <th colSpan={2} className="border border-black p-1 font-bold text-center">DIFFICULT (30%)</th>
             </tr>
             {/* Bloom's Taxonomy Row */}
-            <tr style={{ backgroundColor: '#D4EFDF' }}>
+            <tr style={{ backgroundColor: '#91E291' }}>
               {bloomLevels.map((level) => (
                 <th key={level.key} className="border border-black p-1 font-bold text-center text-xs">
                   <div>{level.label}</div>
