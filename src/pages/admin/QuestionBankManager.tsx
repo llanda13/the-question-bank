@@ -16,11 +16,45 @@ import { toast } from "sonner";
 import { Questions, type Question } from "@/services/db/questions";
 import {
   CATEGORIES,
+  CATEGORY_CONFIG,
   getSpecializations,
   getSubjectCodes,
   getSubjectDescription,
 } from "@/config/questionBankFilters";
 import { QuestionBankReports } from "@/components/admin/QuestionBankReports";
+
+const ALL_BLOOM_LEVELS = ["Remembering", "Understanding", "Applying", "Analyzing", "Evaluating", "Creating"];
+
+const DIFFICULTY_COGNITIVE_MAP: Record<string, string[]> = {
+  Easy: ["Remembering", "Understanding"],
+  Average: ["Applying", "Analyzing"],
+  Difficult: ["Evaluating", "Creating"],
+};
+
+// Gather all unique specializations across all categories
+function getAllSpecializations(): string[] {
+  const set = new Set<string>();
+  Object.values(CATEGORY_CONFIG).forEach((cat) =>
+    cat.specializations.forEach((s) => set.add(s.name))
+  );
+  return Array.from(set).sort();
+}
+
+// Gather all unique subject codes across all categories (optionally filtered by specialization)
+function getAllSubjectCodes(specialization?: string): { code: string; description: string }[] {
+  const map = new Map<string, string>();
+  Object.values(CATEGORY_CONFIG).forEach((cat) =>
+    cat.specializations.forEach((s) => {
+      if (specialization && s.name !== specialization) return;
+      s.subjects.forEach((sub) => {
+        if (!map.has(sub.code)) map.set(sub.code, sub.description);
+      });
+    })
+  );
+  return Array.from(map.entries())
+    .map(([code, description]) => ({ code, description }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
 
 export default function QuestionBankManager() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -36,6 +70,7 @@ export default function QuestionBankManager() {
   const [filterSubjectCode, setFilterSubjectCode] = useState<string>("all");
   const [filterSubjectDescription, setFilterSubjectDescription] = useState<string>("");
 
+  // Form state
   const [formData, setFormData] = useState({
     question_text: "",
     question_type: "mcq" as const,
@@ -53,6 +88,9 @@ export default function QuestionBankManager() {
     subject_code: "",
     subject_description: "",
   });
+  const [formCustomCategory, setFormCustomCategory] = useState("");
+  const [formCustomSpecialization, setFormCustomSpecialization] = useState("");
+  const [formDifficultyDomain, setFormDifficultyDomain] = useState<string[]>([]);
 
   const { data: questions, isLoading } = useQuery({
     queryKey: ["admin-questions"],
@@ -66,22 +104,29 @@ export default function QuestionBankManager() {
     },
   });
 
-  // Derived specialization options based on selected category
+  // --- Filter dropdown options ---
   const specializationOptions = useMemo(() => {
-    if (filterCategory === "all") return [];
+    if (filterCategory === "all") return getAllSpecializations();
     return getSpecializations(filterCategory);
   }, [filterCategory]);
 
-  // Derived subject code options based on selected specialization
   const subjectCodeOptions = useMemo(() => {
-    if (filterCategory === "all" || filterSpecialization === "all") return [];
+    if (filterCategory === "all" && filterSpecialization === "all") return getAllSubjectCodes();
+    if (filterCategory === "all" && filterSpecialization !== "all") return getAllSubjectCodes(filterSpecialization);
+    if (filterSpecialization === "all") return [];
     return getSubjectCodes(filterCategory, filterSpecialization);
   }, [filterCategory, filterSpecialization]);
 
-  // Auto-populate subject description when subject code changes
   const computedSubjectDescription = useMemo(() => {
-    if (filterCategory === "all" || filterSpecialization === "all" || filterSubjectCode === "all") return "";
-    return getSubjectDescription(filterCategory, filterSpecialization, filterSubjectCode);
+    if (filterSubjectCode === "all") return "";
+    // Try exact config lookup first
+    if (filterCategory !== "all" && filterSpecialization !== "all") {
+      return getSubjectDescription(filterCategory, filterSpecialization, filterSubjectCode);
+    }
+    // Fallback: find in all subject codes
+    const match = getAllSubjectCodes(filterSpecialization !== "all" ? filterSpecialization : undefined)
+      .find((s) => s.code === filterSubjectCode);
+    return match?.description || "";
   }, [filterCategory, filterSpecialization, filterSubjectCode]);
 
   // Cascading reset handlers
@@ -100,14 +145,9 @@ export default function QuestionBankManager() {
 
   const handleSubjectCodeChange = (value: string) => {
     setFilterSubjectCode(value);
-    if (value !== "all" && filterCategory !== "all" && filterSpecialization !== "all") {
-      setFilterSubjectDescription(getSubjectDescription(filterCategory, filterSpecialization, value));
-    } else {
-      setFilterSubjectDescription("");
-    }
   };
 
-  // Filter + search
+  // --- Filtered questions ---
   const filteredQuestions = useMemo(() => {
     if (!questions) return [];
     let result = [...questions];
@@ -136,6 +176,28 @@ export default function QuestionBankManager() {
     return result;
   }, [questions, searchQuery, filterCategory, filterSpecialization, filterSubjectCode]);
 
+  // --- Form cognitive level options based on difficulty domain checkboxes ---
+  const availableCognitiveLevels = useMemo(() => {
+    if (formDifficultyDomain.length === 0) return ALL_BLOOM_LEVELS;
+    const levels = new Set<string>();
+    formDifficultyDomain.forEach((d) => {
+      DIFFICULTY_COGNITIVE_MAP[d]?.forEach((l) => levels.add(l));
+    });
+    return ALL_BLOOM_LEVELS.filter((l) => levels.has(l));
+  }, [formDifficultyDomain]);
+
+  // --- Form specialization options ---
+  const formSpecializationOptions = useMemo(() => {
+    if (!formData.category) return [];
+    return getSpecializations(formData.category);
+  }, [formData.category]);
+
+  const formSubjectCodeOptions = useMemo(() => {
+    if (!formData.category || !formData.specialization) return [];
+    return getSubjectCodes(formData.category, formData.specialization);
+  }, [formData.category, formData.specialization]);
+
+  // --- Mutations ---
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       return await Questions.create({
@@ -205,6 +267,9 @@ export default function QuestionBankManager() {
       subject_code: "",
       subject_description: "",
     });
+    setFormCustomCategory("");
+    setFormCustomSpecialization("");
+    setFormDifficultyDomain([]);
     setIsCreating(false);
     setEditingId(null);
   };
@@ -228,11 +293,19 @@ export default function QuestionBankManager() {
       subject_code: (question as any).subject_code || "",
       subject_description: (question as any).subject_description || "",
     });
+    setFormCustomCategory("");
+    setFormCustomSpecialization("");
+    setFormDifficultyDomain([]);
   };
 
   const handleSubmit = () => {
-    if (editingId) updateMutation.mutate({ id: editingId, data: formData });
-    else createMutation.mutate(formData);
+    // Apply custom category/specialization if set
+    const finalData = { ...formData };
+    if (formCustomCategory) finalData.category = formCustomCategory;
+    if (formCustomSpecialization) finalData.specialization = formCustomSpecialization;
+
+    if (editingId) updateMutation.mutate({ id: editingId, data: finalData });
+    else createMutation.mutate(finalData);
   };
 
   const toggleSelect = (id: string) => {
@@ -263,11 +336,28 @@ export default function QuestionBankManager() {
   const formatTimestamp = (dateStr: string) => {
     const d = new Date(dateStr);
     const month = d.toLocaleString("default", { month: "short" });
-    return `${month} ${d.getFullYear()}`;
+    const year = d.getFullYear();
+    return { month, year };
+  };
+
+  const handleDifficultyDomainToggle = (domain: string) => {
+    setFormDifficultyDomain((prev) => {
+      const next = prev.includes(domain) ? prev.filter((d) => d !== domain) : [...prev, domain];
+      // Reset cognitive level if it's no longer valid
+      if (next.length > 0) {
+        const validLevels = new Set<string>();
+        next.forEach((d) => DIFFICULTY_COGNITIVE_MAP[d]?.forEach((l) => validLevels.add(l)));
+        if (formData.cognitive_level && !validLevels.has(formData.cognitive_level)) {
+          setFormData((prev) => ({ ...prev, cognitive_level: "" }));
+        }
+      }
+      return next;
+    });
   };
 
   const renderQuestionCard = (q: Question) => {
     const qAny = q as any;
+    const ts = formatTimestamp(q.created_at);
     return (
       <div
         key={q.id}
@@ -282,19 +372,27 @@ export default function QuestionBankManager() {
           <p className="text-sm font-medium text-foreground leading-relaxed">
             {q.question_text}
           </p>
-          <div className="flex flex-wrap gap-1.5 mt-2">
+          <div className="flex flex-wrap items-center gap-1 mt-2 text-xs text-muted-foreground">
             {qAny.category && (
               <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
                 {qAny.category}
               </Badge>
+            )}
+            {(qAny.category && qAny.specialization) && (
+              <span className="text-muted-foreground">|</span>
             )}
             {qAny.specialization && (
               <Badge variant="secondary" className="text-xs">
                 {qAny.specialization}
               </Badge>
             )}
+            <span className="text-muted-foreground">|</span>
             <Badge variant="outline" className="text-xs">
-              {formatTimestamp(q.created_at)}
+              {ts.year}
+            </Badge>
+            <span className="text-muted-foreground">|</span>
+            <Badge variant="outline" className="text-xs">
+              {ts.month}
             </Badge>
           </div>
         </div>
@@ -315,6 +413,216 @@ export default function QuestionBankManager() {
     );
   };
 
+  // --- Render Form ---
+  const renderForm = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>{editingId ? "Edit Question" : "Create New Question"}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Row 1: Category & Specialization */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Category</Label>
+            <Select
+              value={formCustomCategory ? "__custom__" : formData.category || undefined}
+              onValueChange={(v) => {
+                if (v === "__custom__") {
+                  setFormCustomCategory(" ");
+                  setFormData({ ...formData, category: "", specialization: "", subject_code: "", subject_description: "" });
+                } else {
+                  setFormCustomCategory("");
+                  setFormData({ ...formData, category: v, specialization: "", subject_code: "", subject_description: "" });
+                }
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+              <SelectContent>
+                {CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+                <SelectItem value="__custom__">Other (type below)</SelectItem>
+              </SelectContent>
+            </Select>
+            {formCustomCategory !== "" && (
+              <Input
+                placeholder="Enter custom category"
+                value={formCustomCategory.trim()}
+                onChange={(e) => setFormCustomCategory(e.target.value)}
+                className="mt-1"
+              />
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Specialization</Label>
+            <Select
+              value={formCustomSpecialization ? "__custom__" : formData.specialization || undefined}
+              onValueChange={(v) => {
+                if (v === "__custom__") {
+                  setFormCustomSpecialization(" ");
+                  setFormData({ ...formData, specialization: "", subject_code: "", subject_description: "" });
+                } else {
+                  setFormCustomSpecialization("");
+                  setFormData({ ...formData, specialization: v, subject_code: "", subject_description: "" });
+                }
+              }}
+              disabled={!formData.category && !formCustomCategory}
+            >
+              <SelectTrigger><SelectValue placeholder="Select specialization" /></SelectTrigger>
+              <SelectContent>
+                {formSpecializationOptions.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+                <SelectItem value="__custom__">Other (type below)</SelectItem>
+              </SelectContent>
+            </Select>
+            {formCustomSpecialization !== "" && (
+              <Input
+                placeholder="Enter custom specialization"
+                value={formCustomSpecialization.trim()}
+                onChange={(e) => setFormCustomSpecialization(e.target.value)}
+                className="mt-1"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: Subject Code & Subject Description */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Subject Code</Label>
+            {formSubjectCodeOptions.length > 0 && !formCustomSpecialization ? (
+              <Select
+                value={formData.subject_code || undefined}
+                onValueChange={(v) => {
+                  const desc = getSubjectDescription(formData.category, formData.specialization, v);
+                  setFormData({ ...formData, subject_code: v, subject_description: desc });
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select code" /></SelectTrigger>
+                <SelectContent>
+                  {formSubjectCodeOptions.map((s) => (
+                    <SelectItem key={s.code} value={s.code}>{s.code}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                placeholder="Enter subject code"
+                value={formData.subject_code}
+                onChange={(e) => setFormData({ ...formData, subject_code: e.target.value })}
+              />
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Subject Description</Label>
+            <Input
+              placeholder="Subject description"
+              value={formData.subject_description}
+              onChange={(e) => setFormData({ ...formData, subject_description: e.target.value })}
+              className={formData.subject_description && !formCustomSpecialization && formSubjectCodeOptions.length > 0 ? "bg-muted" : ""}
+              readOnly={!!formData.subject_description && !formCustomSpecialization && formSubjectCodeOptions.length > 0}
+            />
+          </div>
+        </div>
+
+        {/* Row 3: Question Text (large) */}
+        <div className="space-y-2">
+          <Label>Question Text</Label>
+          <Textarea
+            value={formData.question_text}
+            onChange={(e) => setFormData({ ...formData, question_text: e.target.value })}
+            rows={5}
+            placeholder="Enter question text..."
+            className="min-h-[120px]"
+          />
+        </div>
+
+        {/* Row 4: Cognitive Domain (difficulty checkboxes) + Cognitive Level */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Cognitive Domain (Difficulty)</Label>
+            <div className="flex flex-wrap gap-4 pt-1">
+              {["Easy", "Average", "Difficult"].map((domain) => (
+                <label key={domain} className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formDifficultyDomain.includes(domain)}
+                    onCheckedChange={() => handleDifficultyDomainToggle(domain)}
+                  />
+                  <span className="text-sm">{domain}</span>
+                </label>
+              ))}
+            </div>
+            {formDifficultyDomain.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Mapped levels: {formDifficultyDomain.flatMap((d) => DIFFICULTY_COGNITIVE_MAP[d] || []).join(", ")}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Cognitive Level</Label>
+            <Select
+              value={formData.cognitive_level || undefined}
+              onValueChange={(v) => setFormData({ ...formData, cognitive_level: v })}
+            >
+              <SelectTrigger><SelectValue placeholder="Select cognitive level" /></SelectTrigger>
+              <SelectContent>
+                {availableCognitiveLevels.map((l) => (
+                  <SelectItem key={l} value={l}>{l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Row 5: Additional fields */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="space-y-2">
+            <Label>Topic</Label>
+            <Input value={formData.topic} onChange={(e) => setFormData({ ...formData, topic: e.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <Label>Bloom's Level</Label>
+            <Select value={formData.bloom_level || undefined} onValueChange={(v) => setFormData({ ...formData, bloom_level: v })}>
+              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {ALL_BLOOM_LEVELS.map((l) => (
+                  <SelectItem key={l} value={l}>{l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Difficulty</Label>
+            <Select value={formData.difficulty || undefined} onValueChange={(v) => setFormData({ ...formData, difficulty: v })}>
+              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="easy">Easy</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="hard">Hard</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Subject</Label>
+            <Input value={formData.subject} onChange={(e) => setFormData({ ...formData, subject: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button onClick={handleSubmit}>
+            <Save className="h-4 w-4 mr-2" />
+            {editingId ? "Update" : "Create"}
+          </Button>
+          <Button onClick={resetForm} variant="outline">
+            <X className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -329,125 +637,7 @@ export default function QuestionBankManager() {
       </div>
 
       {/* Create/Edit Form */}
-      {(isCreating || editingId) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{editingId ? "Edit Question" : "Create New Question"}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Question Text</Label>
-              <Textarea
-                value={formData.question_text}
-                onChange={(e) => setFormData({ ...formData, question_text: e.target.value })}
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Select
-                  value={formData.category}
-                  onValueChange={(v) =>
-                    setFormData({ ...formData, category: v, specialization: "", subject_code: "", subject_description: "" })
-                  }
-                >
-                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Specialization</Label>
-                <Select
-                  value={formData.specialization}
-                  onValueChange={(v) =>
-                    setFormData({ ...formData, specialization: v, subject_code: "", subject_description: "" })
-                  }
-                  disabled={!formData.category}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select specialization" /></SelectTrigger>
-                  <SelectContent>
-                    {formData.category &&
-                      getSpecializations(formData.category).map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Subject Code</Label>
-                <Select
-                  value={formData.subject_code}
-                  onValueChange={(v) => {
-                    const desc = getSubjectDescription(formData.category, formData.specialization, v);
-                    setFormData({ ...formData, subject_code: v, subject_description: desc });
-                  }}
-                  disabled={!formData.specialization}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select code" /></SelectTrigger>
-                  <SelectContent>
-                    {formData.category &&
-                      formData.specialization &&
-                      getSubjectCodes(formData.category, formData.specialization).map((s) => (
-                        <SelectItem key={s.code} value={s.code}>{s.code}</SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Subject Description</Label>
-                <Input value={formData.subject_description} readOnly className="bg-muted" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label>Topic</Label>
-                <Input value={formData.topic} onChange={(e) => setFormData({ ...formData, topic: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Bloom's Level</Label>
-                <Select value={formData.bloom_level} onValueChange={(v) => setFormData({ ...formData, bloom_level: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["Remembering", "Understanding", "Applying", "Analyzing", "Evaluating", "Creating"].map((l) => (
-                      <SelectItem key={l} value={l}>{l}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Difficulty</Label>
-                <Select value={formData.difficulty} onValueChange={(v) => setFormData({ ...formData, difficulty: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="easy">Easy</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="hard">Hard</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Subject</Label>
-                <Input value={formData.subject} onChange={(e) => setFormData({ ...formData, subject: e.target.value })} />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleSubmit}>
-                <Save className="h-4 w-4 mr-2" />
-                {editingId ? "Update" : "Create"}
-              </Button>
-              <Button onClick={resetForm} variant="outline">
-                <X className="h-4 w-4 mr-2" />
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {(isCreating || editingId) && renderForm()}
 
       <div className="flex flex-col lg:flex-row gap-4">
         {/* Left Filter Panel */}
@@ -477,13 +667,12 @@ export default function QuestionBankManager() {
                 </Select>
               </div>
 
-              {/* Specialization - dependent on Category */}
+              {/* Specialization */}
               <div className="space-y-2">
                 <Label className="text-xs">Specialization</Label>
                 <Select
                   value={filterSpecialization}
                   onValueChange={handleSpecializationChange}
-                  disabled={filterCategory === "all"}
                 >
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -495,19 +684,21 @@ export default function QuestionBankManager() {
                 </Select>
               </div>
 
-              {/* Subject Code - dependent on Specialization */}
+              {/* Subject Code */}
               <div className="space-y-2">
                 <Label className="text-xs">Subject Code</Label>
                 <Select
                   value={filterSubjectCode}
                   onValueChange={handleSubjectCodeChange}
-                  disabled={filterSpecialization === "all"}
+                  disabled={subjectCodeOptions.length === 0}
                 >
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Codes</SelectItem>
                     {subjectCodeOptions.map((s) => (
-                      <SelectItem key={s.code} value={s.code}>{s.code}</SelectItem>
+                      <SelectItem key={s.code} value={s.code}>
+                        {s.code} — {s.description}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
