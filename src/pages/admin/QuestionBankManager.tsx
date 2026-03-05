@@ -575,40 +575,6 @@ export default function QuestionBankManager() {
           </div>
         </div>
 
-        {/* Row 5: Additional fields */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="space-y-2">
-            <Label>Topic</Label>
-            <Input value={formData.topic} onChange={(e) => setFormData({ ...formData, topic: e.target.value })} />
-          </div>
-          <div className="space-y-2">
-            <Label>Bloom's Level</Label>
-            <Select value={formData.bloom_level || undefined} onValueChange={(v) => setFormData({ ...formData, bloom_level: v })}>
-              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>
-                {ALL_BLOOM_LEVELS.map((l) => (
-                  <SelectItem key={l} value={l}>{l}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Difficulty</Label>
-            <Select value={formData.difficulty || undefined} onValueChange={(v) => setFormData({ ...formData, difficulty: v })}>
-              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="easy">Easy</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="hard">Hard</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Subject</Label>
-            <Input value={formData.subject} onChange={(e) => setFormData({ ...formData, subject: e.target.value })} />
-          </div>
-        </div>
-
         <div className="flex gap-2 pt-2">
           <Button onClick={handleSubmit}>
             <Save className="h-4 w-4 mr-2" />
