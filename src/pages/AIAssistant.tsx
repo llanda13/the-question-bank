@@ -286,29 +286,31 @@ export default function AIAssistant() {
         </div>
       </div>
 
-      {/* Input */}
-      <div className="border-t border-border p-4 bg-card shrink-0">
-        <div className="max-w-3xl mx-auto flex gap-2">
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about any academic topic..."
-            className="min-h-[44px] max-h-32 resize-none"
-            rows={1}
-            disabled={isLoading}
-          />
-          <Button
-            onClick={() => sendMessage(input)}
-            disabled={!input.trim() || isLoading}
-            size="icon"
-            className="shrink-0 h-[44px] w-[44px]"
-          >
-            <Send className="w-4 h-4" />
-          </Button>
+      {/* Input - only shown when conversation is active */}
+      {messages.length > 0 && (
+        <div className="border-t border-border p-4 bg-card shrink-0">
+          <div className="max-w-3xl mx-auto flex gap-2">
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about any academic topic..."
+              className="min-h-[44px] max-h-32 resize-none"
+              rows={1}
+              disabled={isLoading}
+            />
+            <Button
+              onClick={() => sendMessage(input)}
+              disabled={!input.trim() || isLoading}
+              size="icon"
+              className="shrink-0 h-[44px] w-[44px]"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
