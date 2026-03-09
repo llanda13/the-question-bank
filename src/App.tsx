@@ -28,6 +28,7 @@ import TOSViewPage from "./pages/teacher/TOSViewPage";
 import TeacherReports from "./pages/teacher/Reports";
 import TeacherSettings from "./pages/teacher/Settings";
 import ProfessionalExport from "./pages/ProfessionalExport";
+import AIAssistant from "./pages/AIAssistant";
 import Tests from "./pages/Tests";
 import Collaboration from "./pages/Collaboration";
 import Quality from "./pages/Quality";
