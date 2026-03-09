@@ -4,6 +4,7 @@ import { generateQuestions } from "./generate";
 import type { BloomLevel, Difficulty } from "./classify";
 import { QuestionUniquenessStore, createQuestionFingerprint } from "./questionUniquenessChecker";
 import type { AnswerType, KnowledgeDimension } from "@/types/knowledge";
+import { resolveSubjectMetadata } from "./subjectMetadataResolver";
 
 export interface TOSRequirement {
   topic: string;
