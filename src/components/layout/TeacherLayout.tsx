@@ -49,6 +49,12 @@ const teacherMenuItems = [
     description: "Saved specifications" 
   },
   { 
+    title: "AI Assistant", 
+    href: "/teacher/ai-assistant", 
+    icon: Brain,
+    description: "Academic AI helper" 
+  },
+  { 
     title: "Reports", 
     href: "/teacher/reports", 
     icon: BarChart3,
