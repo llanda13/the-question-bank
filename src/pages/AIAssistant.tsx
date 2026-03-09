@@ -201,6 +201,29 @@ export default function AIAssistant() {
                   Ask me about academic topics, generate assessment questions, or get help with educational strategies.
                 </p>
               </div>
+
+              {/* Input moved here for empty state */}
+              <div className="w-full max-w-2xl flex gap-2">
+                <Textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask about any academic topic..."
+                  className="min-h-[44px] max-h-32 resize-none"
+                  rows={1}
+                  disabled={isLoading}
+                />
+                <Button
+                  onClick={() => sendMessage(input)}
+                  disabled={!input.trim() || isLoading}
+                  size="icon"
+                  className="shrink-0 h-[44px] w-[44px]"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              </div>
+
               <div className="flex flex-wrap gap-2 justify-center max-w-lg">
                 {SUGGESTION_CHIPS.map((chip) => (
                   <button
