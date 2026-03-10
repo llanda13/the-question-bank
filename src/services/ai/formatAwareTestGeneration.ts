@@ -389,7 +389,9 @@ async function generateSectionQuestions(
       allQuestionTexts
     );
     
-    questions.push(...generatedQuestions);
+    // Save AI-generated questions to the Question Bank for future reuse
+    const savedQuestions = await saveGeneratedQuestionsToBank(generatedQuestions, userId, criteria);
+    questions.push(...savedQuestions);
   }
   
   // Ensure we have exactly the target count
