@@ -15,6 +15,7 @@ import {
 import type { TOSCriteria } from "./testGenerationService";
 import { QuestionUniquenessStore, createQuestionFingerprint, extractConcept } from "./questionUniquenessChecker";
 import type { AnswerType, KnowledgeDimension } from "@/types/knowledge";
+import { resolveSubjectMetadata } from "./subjectMetadataResolver";
 
 export interface FormatAwareTestConfig {
   format: ExamFormat;
