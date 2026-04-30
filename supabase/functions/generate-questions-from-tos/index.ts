@@ -8,6 +8,21 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
+// ============= UUID GENERATOR =============
+function generateUUID(): string {
+  // Try native crypto.randomUUID first (preferred)
+  if (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  // Fallback to RFC 4122 v4 UUID generation
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 // ============= TYPES =============
 
 interface TopicDistribution {
@@ -60,6 +75,26 @@ interface GenerationRegistry {
 }
 
 // ============= CONSTANTS =============
+
+/**
+ * Extract JSON from AI response that may be wrapped in markdown code blocks
+ */
+function extractJSON(text: string): any {
+  // Try direct parse first
+  try { return JSON.parse(text); } catch {}
+  // Strip markdown code blocks
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (match) {
+    try { return JSON.parse(match[1].trim()); } catch {}
+  }
+  // Try finding first { to last }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  }
+  throw new Error('Could not extract JSON from AI response');
+}
 
 const BLOOM_LEVELS = ['remembering', 'understanding', 'applying', 'analyzing', 'evaluating', 'creating'];
 
@@ -278,13 +313,34 @@ function expandTOSToSlots(distributions: TopicDistribution[], totalItems: number
       const count = dist.counts[bloom as keyof typeof dist.counts] as number;
       if (!count || count <= 0) continue;
 
-      // Distribute across difficulty levels
+      // Distribute across difficulty levels using largest-remainder method to preserve exact count
       const { easy, average, difficult } = dist.counts.difficulty;
       const totalDiff = Math.max(1, easy + average + difficult);
       
-      const easyCount = Math.round(count * (easy / totalDiff));
-      const averageCount = Math.round(count * (average / totalDiff));
-      const difficultCount = Math.max(0, count - easyCount - averageCount);
+      // Use largest-remainder method (Hamilton's method) to avoid rounding errors
+      const rawEasy = count * (easy / totalDiff);
+      const rawAverage = count * (average / totalDiff);
+      const rawDifficult = count * (difficult / totalDiff);
+      
+      let easyCount = Math.floor(rawEasy);
+      let averageCount = Math.floor(rawAverage);
+      let difficultCount = Math.floor(rawDifficult);
+      
+      // Distribute remainders to reach exact count
+      let remainder = count - easyCount - averageCount - difficultCount;
+      const remainders = [
+        { key: 'easy', frac: rawEasy - easyCount },
+        { key: 'average', frac: rawAverage - averageCount },
+        { key: 'difficult', frac: rawDifficult - difficultCount }
+      ].sort((a, b) => b.frac - a.frac);
+      
+      for (const r of remainders) {
+        if (remainder <= 0) break;
+        if (r.key === 'easy') easyCount++;
+        else if (r.key === 'average') averageCount++;
+        else difficultCount++;
+        remainder--;
+      }
 
       const difficulties = [
         { level: 'easy', count: easyCount },
@@ -375,6 +431,26 @@ function expandTOSToSlots(distributions: TopicDistribution[], totalItems: number
     }
   }
 
+  // ============= SLOT COUNT ENFORCEMENT =============
+  // If rounding caused fewer slots than totalItems, add MCQ slots to fill
+  while (slots.length < totalItems) {
+    const dist = distributions[slots.length % distributions.length];
+    slots.push({
+      id: `slot_${slotId++}`,
+      topic: dist.topic,
+      bloomLevel: 'understanding',
+      difficulty: 'average',
+      knowledgeDimension: 'conceptual',
+      questionType: 'mcq',
+      points: POINTS.mcq,
+      filled: false
+    });
+  }
+  // If rounding created more slots than totalItems, trim
+  if (slots.length > totalItems) {
+    slots.length = totalItems;
+  }
+
   const typeCounts = {
     mcq: slots.filter(s => s.questionType === 'mcq').length,
     true_false: slots.filter(s => s.questionType === 'true_false').length,
@@ -382,7 +458,7 @@ function expandTOSToSlots(distributions: TopicDistribution[], totalItems: number
     essay: slots.filter(s => s.questionType === 'essay').length
   };
   
-  console.log(`📋 Expanded TOS into ${slots.length} slots:`);
+  console.log(`📋 Expanded TOS into ${slots.length} slots (required: ${totalItems}):`);
   console.log(`   MCQ: ${typeCounts.mcq}`);
   console.log(`   ${secondaryType === 'true_false' ? 'T/F' : 'Short Answer'}: ${secondaryType === 'true_false' ? typeCounts.true_false : typeCounts.short_answer}`);
   console.log(`   Essay: ${typeCounts.essay}`);
@@ -685,9 +761,9 @@ async function fillSlotsWithAI(
 ): Promise<Slot[]> {
   if (slots.length === 0) return [];
 
-  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!openAIApiKey) {
-    console.error('OpenAI API key not configured');
+  const aiApiKey = Deno.env.get('LOVABLE_API_KEY') || Deno.env.get('OPENAI_API_KEY');
+  if (!aiApiKey) {
+    console.error('No AI API key configured (LOVABLE_API_KEY or OPENAI_API_KEY)');
     return slots.map(s => ({ ...s, filled: false }));
   }
 
@@ -738,7 +814,7 @@ async function fillSlotsWithAI(
           topic,
           bloom,
           intents,
-          openAIApiKey,
+          aiApiKey,
           registry
         );
 
@@ -1099,14 +1175,14 @@ Return ONLY valid JSON with COMPLETE content:
 
   console.log(`🤖 Generating ${intents.length} MCQ questions for ${topic}/${bloom}`);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'google/gemini-3-flash-preview',
       messages: [
         {
           role: 'system',
@@ -1122,7 +1198,7 @@ CRITICAL RULES:
         },
         { role: 'user', content: prompt }
       ],
-      response_format: { type: "json_object" },
+
       temperature: 0.6,
       max_tokens: 4000
     }),
@@ -1139,7 +1215,7 @@ CRITICAL RULES:
   let generatedQuestions;
   try {
     const content = aiResponse.choices[0].message.content;
-    generatedQuestions = JSON.parse(content);
+    generatedQuestions = extractJSON(content);
   } catch (parseError) {
     console.error('Failed to parse MCQ response:', parseError);
     throw new Error('Invalid MCQ response format');
@@ -1262,7 +1338,7 @@ CRITICAL RULES:
     }
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: normalizeQuestionText(q.text || `Analyze the key aspects of ${topic} in the context of ${bloom.toLowerCase()} level understanding.`),
       question_type: 'mcq',
       choices: choices,
@@ -1332,14 +1408,14 @@ Return ONLY valid JSON:
 
   console.log(`🤖 Generating ${intents.length} T/F questions for ${topic}/${bloom}`);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'google/gemini-3-flash-preview',
       messages: [
         {
           role: 'system',
@@ -1347,7 +1423,7 @@ Return ONLY valid JSON:
         },
         { role: 'user', content: prompt }
       ],
-      response_format: { type: "json_object" },
+
       temperature: 0.3,
       max_tokens: 2000
     }),
@@ -1364,7 +1440,7 @@ Return ONLY valid JSON:
   let generatedQuestions;
   try {
     const content = aiResponse.choices[0].message.content;
-    generatedQuestions = JSON.parse(content);
+    generatedQuestions = extractJSON(content);
   } catch (parseError) {
     console.error('Failed to parse T/F response:', parseError);
     throw new Error('Invalid T/F response format');
@@ -1380,7 +1456,7 @@ Return ONLY valid JSON:
     else correctAnswer = 'True';
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: q.text,
       question_type: 'true_false',
       choices: { 'True': 'True', 'False': 'False' },
@@ -1455,14 +1531,14 @@ Return ONLY valid JSON:
 
   console.log(`🤖 Generating ${intents.length} Short Answer questions for ${topic}/${bloom}`);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'google/gemini-3-flash-preview',
       messages: [
         {
           role: 'system',
@@ -1470,7 +1546,7 @@ Return ONLY valid JSON:
         },
         { role: 'user', content: prompt }
       ],
-      response_format: { type: "json_object" },
+
       temperature: 0.3,
       max_tokens: 2000
     }),
@@ -1487,7 +1563,7 @@ Return ONLY valid JSON:
   let generatedQuestions;
   try {
     const content = aiResponse.choices[0].message.content;
-    generatedQuestions = JSON.parse(content);
+    generatedQuestions = extractJSON(content);
   } catch (parseError) {
     console.error('Failed to parse Short Answer response:', parseError);
     throw new Error('Invalid Short Answer response format');
@@ -1497,7 +1573,7 @@ Return ONLY valid JSON:
     const intent = intents[idx];
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: q.text,
       question_type: 'short_answer',
       correct_answer: q.correct_answer,
@@ -1571,14 +1647,14 @@ Return ONLY valid JSON:
 
   console.log(`🤖 Generating ${intents.length} Essay questions for ${topic}/${bloom}`);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'google/gemini-3-flash-preview',
       messages: [
         {
           role: 'system',
@@ -1586,7 +1662,7 @@ Return ONLY valid JSON:
         },
         { role: 'user', content: prompt }
       ],
-      response_format: { type: "json_object" },
+
       temperature: 0.4,
       max_tokens: 3000
     }),
@@ -1603,7 +1679,7 @@ Return ONLY valid JSON:
   let generatedQuestions;
   try {
     const content = aiResponse.choices[0].message.content;
-    generatedQuestions = JSON.parse(content);
+    generatedQuestions = extractJSON(content);
   } catch (parseError) {
     console.error('Failed to parse Essay response:', parseError);
     throw new Error('Invalid Essay response format');
@@ -1613,7 +1689,7 @@ Return ONLY valid JSON:
     const intent = intents[idx];
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: q.text,
       question_type: 'essay',
       correct_answer: null,
@@ -1868,9 +1944,9 @@ serve(async (req) => {
       console.log(`   🎯 Generating ${slotsToFill.length} repair questions...`);
       
       // Generate repair questions using AI
-      const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-      if (!openAIApiKey) {
-        console.error(`   ❌ Cannot generate repair questions: OpenAI API key not configured`);
+      const aiRepairKey = Deno.env.get('LOVABLE_API_KEY') || Deno.env.get('OPENAI_API_KEY');
+      if (!aiRepairKey) {
+        console.error(`   ❌ Cannot generate repair questions: No AI API key configured`);
         break;
       }
       
