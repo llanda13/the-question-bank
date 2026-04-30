@@ -14,6 +14,112 @@ export type Database = {
   }
   public: {
     Tables: {
+      academic_categories: {
+        Row: {
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      academic_specializations: {
+        Row: {
+          category_id: string
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "academic_specializations_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "academic_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      academic_subjects: {
+        Row: {
+          code: string
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          description: string
+          id: string
+          specialization_id: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          description: string
+          id?: string
+          specialization_id: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          description?: string
+          id?: string
+          specialization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "academic_subjects_specialization_id_fkey"
+            columns: ["specialization_id"]
+            isOneToOne: false
+            referencedRelation: "academic_specializations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       activity_log: {
         Row: {
           action: string
@@ -51,6 +157,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      ai_conversations: {
+        Row: {
+          active_intent: string | null
+          created_at: string
+          id: string
+          last_message_at: string
+          messages: Json
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active_intent?: string | null
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          messages?: Json
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active_intent?: string | null
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          messages?: Json
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       ai_generation_logs: {
         Row: {
