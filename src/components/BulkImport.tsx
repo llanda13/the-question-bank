@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -17,6 +18,7 @@ import { classifyBloom, detectKnowledgeDimension, inferDifficulty } from '@/serv
 import { useTaxonomyClassification } from '@/hooks/useTaxonomyClassification';
 import { resolveSubjectMetadata } from '@/services/ai/subjectMetadataResolver';
 import { CATEGORY_CONFIG, getSpecializations, getSubjectCodes } from '@/config/questionBankFilters';
+import { normalizeCategory, normalizeSpecialization } from '@/utils/acronymNormalizer';
 
 interface BulkImportProps {
   onClose: () => void;
@@ -83,11 +85,35 @@ export default function BulkImport({
   const [verificationData, setVerificationData] = useState<ParsedQuestion[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
+  // Existing topics from Question Bank for auto-assignment
+  const [existingTopics, setExistingTopics] = useState<string[]>([]);
+
   const { batchClassify, buildTaxonomyMatrix } = useTaxonomyClassification({
     useMLClassifier: true,
     storeResults: true,
     checkSimilarity: true
   });
+
+  // Fetch existing topics from Question Bank on mount
+  useEffect(() => {
+    const fetchTopics = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('questions')
+          .select('topic')
+          .eq('deleted', false)
+          .not('topic', 'is', null);
+        if (!error && data) {
+          const uniqueTopics = [...new Set(data.map(q => q.topic).filter(Boolean))];
+          setExistingTopics(uniqueTopics);
+          console.log(`Loaded ${uniqueTopics.length} existing topics for auto-assignment`);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch existing topics:', e);
+      }
+    };
+    fetchTopics();
+  }, []);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -135,65 +161,255 @@ export default function BulkImport({
     });
   };
 
+  /**
+   * Metadata keywords that indicate a line is descriptive info, not a question.
+   * These patterns are checked against numbered lines to filter out false positives.
+   */
+  const METADATA_KEYWORDS = [
+    'question bank', 'category:', 'specialization:', 'subject code:', 'subject description:',
+    'cognitive level:', 'points value:', 'correct answer:', 'topic:', 'course:',
+    'major specialization', 'minor specialization', 'introduction to', 'table of specification',
+    'instruction:', 'directions:', 'note:', 'department:', 'college:', 'university:',
+    'school year:', 'semester:', 'exam period:', 'time limit:', 'total items:',
+    'prepared by:', 'checked by:', 'approved by:', 'date:', 'section:',
+  ];
+
+  /** Check if text is metadata/header rather than an actual question */
+  const isMetadataLine = (text: string): boolean => {
+    const lower = text.toLowerCase().trim();
+    // Check against known metadata keywords
+    if (METADATA_KEYWORDS.some(kw => lower.includes(kw))) return true;
+    // Lines that are just labels with colons and no question mark are likely metadata
+    if (lower.includes(':') && !lower.includes('?') && lower.split(':').length >= 2) {
+      const beforeColon = lower.split(':')[0].trim();
+      // If the part before the colon is a short label (< 4 words), it's metadata
+      if (beforeColon.split(/\s+/).length <= 4) return true;
+    }
+    // Very short text without question structure
+    if (lower.length < 15 && !lower.includes('?')) return true;
+    return false;
+  };
+
+  /** Extract global metadata from non-question text in the PDF */
+  const extractPDFMetadata = (text: string): Record<string, string> => {
+    const metadata: Record<string, string> = {};
+    const patterns: Record<string, RegExp> = {
+      category: /category\s*:\s*(.+?)(?:\n|$)/i,
+      specialization: /specialization\s*:\s*(.+?)(?:\n|$)/i,
+      subject_code: /subject\s*code\s*:\s*(.+?)(?:\n|$)/i,
+      subject_description: /subject\s*description\s*:\s*(.+?)(?:\n|$)/i,
+      cognitive_level: /cognitive\s*level\s*:\s*(.+?)(?:\n|$)/i,
+      topic: /topic\s*:\s*(.+?)(?:\n|$)/i,
+      course: /course\s*:\s*(.+?)(?:\n|$)/i,
+    };
+    for (const [key, regex] of Object.entries(patterns)) {
+      const match = text.match(regex);
+      if (match) metadata[key] = match[1].trim();
+    }
+    // Also try to extract subject from "IT101: Introduction to Computing" pattern
+    const subjectMatch = text.match(/([A-Z]{2,}\d{3,})\s*[:\-–]\s*(.+?)(?:\n|category|specialization)/i);
+    if (subjectMatch) {
+      metadata.subject_code = metadata.subject_code || subjectMatch[1].trim();
+      metadata.subject_description = metadata.subject_description || subjectMatch[2].trim();
+    }
+    return metadata;
+  };
+
+  /** Validate that a correct answer is within A-D range for MCQ */
+  const validateCorrectAnswer = (answer: string, choices: Record<string, string>): string => {
+    const cleaned = answer.trim().toUpperCase();
+    const validLetters = Object.keys(choices);
+    if (validLetters.includes(cleaned)) return cleaned;
+    // Don't default to 'A' — return empty to flag for review
+    return '';
+  };
+
+  /** Extract raw text from PDF using pdfjs */
+  const extractPDFText = async (file: File): Promise<string> => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
+  };
+
+  /** AI-assisted PDF parsing: sends raw text to edge function for intelligent extraction */
+  const aiParsePDF = async (rawText: string): Promise<{ questions: any[]; metadata: Record<string, string> }> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('parse-pdf-questions', {
+        body: {
+          raw_text: rawText,
+          existing_topics: existingTopics,
+          metadata: extractPDFMetadata(rawText),
+        },
+      });
+
+      if (error) throw error;
+      if (!data || !data.questions) throw new Error('No structured output from AI parser');
+
+      console.log(`AI parser returned ${data.questions.length} questions`);
+      return {
+        questions: data.questions,
+        metadata: data.detected_metadata || {},
+      };
+    } catch (err) {
+      console.warn('AI PDF parsing failed, falling back to regex:', err);
+      throw err;
+    }
+  };
+
+  /** Regex-based fallback PDF parser for when AI is unavailable */
+  const regexParsePDF = (fullText: string): any[] => {
+    const globalMeta = extractPDFMetadata(fullText);
+    const questions: any[] = [];
+
+    const questionBlockRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.)]\s+/gi;
+    const matches: { index: number; num: string }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = questionBlockRegex.exec(fullText)) !== null) {
+      matches.push({ index: match.index, num: match[1] });
+    }
+
+    const blocks: { num: string; text: string }[] = [];
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].index;
+      const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
+      const blockText = fullText.substring(start, end).trim();
+      const cleaned = blockText.replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s+/i, '').trim();
+      blocks.push({ num: matches[i].num, text: cleaned });
+    }
+
+    for (const block of blocks) {
+      if (isMetadataLine(block.text.split('\n')[0] || block.text)) continue;
+
+      let correctAnswer = '';
+      const answerMatch = block.text.match(/(?:Answer|Correct\s*Answer)\s*:\s*([A-Fa-f])/i);
+      if (answerMatch) correctAnswer = answerMatch[1].toUpperCase();
+
+      const cleanedBlock = block.text
+        .replace(/•\s*Cognitive\s*Level.*$/gim, '')
+        .replace(/•\s*Difficulty\s*Level.*$/gim, '')
+        .replace(/•\s*Points?\s*Value.*$/gim, '')
+        .replace(/(?:Answer|Correct\s*Answer)\s*:\s*[A-Fa-f]\b/gi, '')
+        .trim();
+
+      const questionText = cleanedBlock.split(/(?:^|\n)\s*[A-F][.)]\s/m)[0]
+        .replace(/\n/g, ' ').trim();
+
+      if (!questionText || questionText.length < 5) continue;
+
+      const choices: Record<string, string> = {};
+      const choiceRegex = /(?:^|\n)\s*([A-F])\s*[.)]\s+(.+?)(?=(?:\n\s*[A-F]\s*[.)])|$)/gs;
+      let choiceMatch: RegExpExecArray | null;
+      while ((choiceMatch = choiceRegex.exec(cleanedBlock)) !== null) {
+        const letter = choiceMatch[1].toUpperCase();
+        let choiceText = choiceMatch[2].trim().replace(/\n/g, ' ');
+        if (choiceText.includes('*') || choiceText.includes('✓')) {
+          if (!correctAnswer) correctAnswer = letter;
+          choiceText = choiceText.replace(/[*✓]/g, '').trim();
+        }
+        choices[letter] = choiceText;
+      }
+
+      if (Object.keys(choices).length === 0) {
+        const inlineRegex = /([A-D])\s*[.)]\s*([^A-D]+?)(?=\s+[A-D]\s*[.)]|$)/g;
+        let inlineMatch: RegExpExecArray | null;
+        while ((inlineMatch = inlineRegex.exec(cleanedBlock)) !== null) {
+          choices[inlineMatch[1].toUpperCase()] = inlineMatch[2].trim();
+        }
+      }
+
+      const choiceCount = Object.keys(choices).length;
+      let questionType: string = 'mcq';
+      if (choiceCount === 0) {
+        questionType = questionText.length > 100 ? 'essay' : 'short_answer';
+      }
+
+      const validatedAnswer = choiceCount > 0 ? validateCorrectAnswer(correctAnswer, choices) : '';
+
+      questions.push({
+        Question: questionText,
+        Type: questionType,
+        ...(choiceCount > 0 ? choices : {}),
+        Correct: validatedAnswer,
+        Topic: globalMeta.topic || selectedTopic || 'General',
+        Category: globalMeta.category || '',
+        Specialization: globalMeta.specialization || '',
+        SubjectCode: globalMeta.subject_code || '',
+        SubjectDescription: globalMeta.subject_description || '',
+      });
+    }
+
+    return questions;
+  };
+
+  /** Main PDF extraction: AI-first with regex fallback */
   const extractQuestionsFromPDF = async (file: File): Promise<any[]> => {
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const rawText = await extractPDFText(file);
       
-      let text = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
-        text += pageText + '\n';
-      }
-      const questions: any[] = [];
-      const questionBlocks = text.split(/\n?\d+\.\s+/).filter(block => block.trim());
-      
-      questionBlocks.forEach((block) => {
-        const lines = block.split('\n').filter(line => line.trim());
-        if (lines.length === 0) return;
-        const questionText = lines[0].trim();
-        const choices: Record<string, string> = {};
-        let correctAnswer = '';
+      // Try AI-assisted parsing first
+      try {
+        setCurrentStep('AI is analyzing PDF structure...');
+        const { questions: aiQuestions, metadata } = await aiParsePDF(rawText);
         
-        lines.slice(1).forEach(line => {
-          const choiceMatch = line.match(/^([A-F])\.\s*(.+)/);
-          if (choiceMatch) {
-            const [, letter, text] = choiceMatch;
-            choices[letter] = text.trim();
-            if (line.includes('*') || line.includes('✓')) {
-              correctAnswer = letter;
-            }
-          }
-        });
-        
-        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
-        if (Object.keys(choices).length === 0) {
-          questionType = 'essay';
-        } else if (Object.keys(choices).length === 2 && 
-                   (choices.A?.toLowerCase().includes('true') || 
-                    choices.A?.toLowerCase().includes('false'))) {
-          questionType = 'true_false';
+        if (aiQuestions.length > 0) {
+          // Convert AI output to standard format
+          return aiQuestions.map((q: any) => ({
+            Question: q.question_text,
+            Type: q.question_type || 'mcq',
+            ...(q.choices || {}),
+            Correct: q.correct_answer || '',
+            Topic: q.topic || metadata.subject_description || selectedTopic || 'General',
+            Bloom: q.bloom_level || '',
+            Difficulty: q.difficulty || '',
+            Category: metadata.category || '',
+            Specialization: metadata.specialization || '',
+            SubjectCode: metadata.subject_code || '',
+            SubjectDescription: metadata.subject_description || '',
+          }));
         }
-        
-        questions.push({
-          Question: questionText,
-          Type: questionType,
-          ...choices,
-          Correct: correctAnswer || 'A',
-          Topic: selectedTopic,
-        });
-      });
+      } catch (aiErr) {
+        console.warn('AI parsing failed, using regex fallback:', aiErr);
+        toast.info('AI parsing unavailable, using pattern-based extraction');
+      }
+
+      // Fallback to regex
+      setCurrentStep('Extracting questions using pattern matching...');
+      const regexQuestions = regexParsePDF(rawText);
       
-      return questions;
+      if (regexQuestions.length === 0) {
+        // Last resort: paragraph-based
+        const globalMeta = extractPDFMetadata(rawText);
+        const paragraphs = rawText.split(/\n\s*\n/).filter(p => {
+          const trimmed = p.trim();
+          return trimmed.length > 10 && !isMetadataLine(trimmed);
+        });
+        return paragraphs.map(para => ({
+          Question: para.trim().substring(0, 500),
+          Type: 'short_answer',
+          Correct: '',
+          Topic: globalMeta.topic || selectedTopic || 'General',
+          Category: globalMeta.category || '',
+          Specialization: globalMeta.specialization || '',
+          SubjectCode: globalMeta.subject_code || '',
+          SubjectDescription: globalMeta.subject_description || '',
+        }));
+      }
+
+      return regexQuestions;
     } catch (error) {
       console.error('PDF parsing error:', error);
       throw new Error('Failed to parse PDF content');
     }
   };
-
   const previewPDF = async (file: File) => {
     try {
       setCurrentStep('Extracting text from PDF...');
@@ -207,21 +423,38 @@ export default function BulkImport({
     }
   };
 
-  const validateRow = (row: any, index: number): string[] => {
+  /** Validate AFTER normalization - only check truly essential fields */
+  const validateNormalized = (q: Partial<ParsedQuestion>, index: number): string[] => {
     const errors: string[] = [];
-    if (!row.Question && !row.question_text && !row['Question Text']) {
-      errors.push(`Row ${index + 1}: Missing question text`);
+    if (!q.question_text || q.question_text.trim().length < 5) {
+      errors.push(`Row ${index + 1}: Missing or too short question text`);
     }
-    if (!row.Topic && !row.topic) {
-      errors.push(`Row ${index + 1}: Missing topic`);
+    if (q.question_type === 'mcq') {
+      const choiceCount = q.choices ? Object.keys(q.choices).length : 0;
+      if (choiceCount < 2) {
+        errors.push(`Row ${index + 1}: MCQ needs at least 2 answer choices`);
+      }
     }
     return errors;
   };
 
+
+  const stripQuestionPrefix = (text: string): string => {
+    return String(text || '')
+      // Leading labels (Q1., Q1), (Q1), Question 1:, 1.)
+      .replace(/^\s*(?:\(\s*)?(?:(?:q(?:uestion)?\.?\s*)?\d+)(?:\s*[.)\-:]\s*)?(?:\)\s*)?/i, '')
+      .replace(/^\s*(?:item\s*)?\d+\s*[.)\-:]\s*/i, '')
+      // Inline/Trailing labels ((Q1), Q1., Question 1)
+      .replace(/\(\s*q(?:uestion)?\.?\s*\d+\s*\)/gi, ' ')
+      .replace(/\bq(?:uestion)?\.?\s*\d+\s*[.)]?\s*$/i, '')
+      .trim();
+  };
+
   const normalizeRow = (row: any): Partial<ParsedQuestion> => {
-    const questionText = row.Question || row.question_text || row['Question Text'] || '';
+    const rawText = row.Question || row.question_text || row['Question Text'] || row.question || '';
+    const questionText = stripQuestionPrefix(rawText);
     const topic = row.Topic || row.topic || '';
-    const type = (row.Type || row.type || row.question_type || 'mcq').toLowerCase();
+    const type = (row.Type || row.type || row.question_type || '').toLowerCase();
 
     let question_type: ParsedQuestion['question_type'] = 'mcq';
     if (type.includes('true') || type.includes('false') || type === 'tf') {
@@ -236,40 +469,141 @@ export default function BulkImport({
     if (question_type === 'mcq') {
       choices = {};
       ['A', 'B', 'C', 'D', 'E', 'F'].forEach((letter) => {
-        const choice = row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`];
-        if (choice && choice.trim()) {
-          choices![letter] = choice.trim();
+        const choice = row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`] || row[letter.toLowerCase()];
+        if (choice && String(choice).trim()) {
+          choices![letter] = String(choice).trim();
         }
       });
+      // If no choices found, auto-detect type
       if (Object.keys(choices).length === 0) {
-        choices = { A: 'Option A', B: 'Option B', C: 'Option C', D: 'Option D' };
+        question_type = questionText.length > 100 ? 'essay' : 'short_answer';
+        choices = undefined;
       }
     }
 
-    // Read metadata columns from CSV
-    const csvCategory = row.Category || row.category || '';
-    const csvSpecialization = row.Specialization || row.specialization || '';
+    // Read metadata columns from CSV - all optional
+    const csvCategory = normalizeCategory(row.Category || row.category || '');
+    const csvSpecialization = normalizeSpecialization(row.Specialization || row.specialization || '');
     const csvSubjectCode = row.SubjectCode || row.subject_code || row['Subject Code'] || '';
     const csvSubjectDescription = row.SubjectDescription || row.subject_description || row['Subject Description'] || '';
 
+    // Topic defaults: use subject description, then 'General'
+    const finalTopic = topic.trim() || csvSubjectDescription.trim() || 'General';
+
     return {
-      topic: topic.trim(),
+      topic: finalTopic,
       question_text: questionText.trim(),
       question_type,
       choices,
-      correct_answer: row.Correct || row.correct_answer || row['Correct Answer'] || 'A',
-      bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'],
+      correct_answer: (() => {
+        const raw = row.Correct || row.correct_answer || row['Correct Answer'] || row.Answer || row.answer || '';
+        if (!raw) return '';
+        // Strictly validate correct answer is within A-D for MCQ
+        if (question_type === 'mcq' && choices) {
+          const upper = String(raw).trim().toUpperCase();
+          return Object.keys(choices).includes(upper) ? upper : '';
+        }
+        return String(raw).trim();
+      })(),
+      bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'] || row['Bloom'],
       difficulty: row.Difficulty || row.difficulty,
       knowledge_dimension: row.KnowledgeDimension || row.knowledge_dimension || row['Knowledge Dimension'],
       subject: row.Subject || row.subject || undefined,
       grade_level: row['Grade Level'] || row.grade_level || undefined,
       term: row.Term || row.term || undefined,
-      tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : row.Tags.split(',').map((t: string) => t.trim())) : undefined,
+      tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : String(row.Tags).split(',').map((t: string) => t.trim())) : undefined,
       category: csvCategory.trim() || undefined,
       specialization: csvSpecialization.trim() || undefined,
       subject_code: csvSubjectCode.trim() || undefined,
       subject_description: csvSubjectDescription.trim() || undefined,
     };
+  };
+
+  /**
+   * Token-based semantic deduplication using Jaccard similarity.
+   * Compares all question pairs and removes near-duplicates above the threshold.
+   */
+  /** Normalize text for comparison: remove Q-labels, lowercase, strip punctuation, collapse whitespace */
+  const normalizeForComparison = (text: string): string => {
+    return stripQuestionPrefix(text)
+      .replace(/\bq(?:uestion)?\.?\s*\d+\b/gi, ' ')
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const deduplicateQuestions = (questions: ParsedQuestion[], threshold: number): ParsedQuestion[] => {
+    const tokenize = (text: string): string[] => {
+      return normalizeForComparison(text)
+        .split(/\s+/)
+        .filter(w => w.length > 2);
+    };
+
+    const buildTermFrequency = (tokens: string[]): Map<string, number> => {
+      const tf = new Map<string, number>();
+      tokens.forEach(token => {
+        tf.set(token, (tf.get(token) || 0) + 1);
+      });
+      return tf;
+    };
+
+    const cosineSimilarity = (a: Map<string, number>, b: Map<string, number>): number => {
+      let dot = 0;
+      let normA = 0;
+      let normB = 0;
+
+      for (const [token, countA] of a.entries()) {
+        normA += countA * countA;
+        const countB = b.get(token) || 0;
+        dot += countA * countB;
+      }
+
+      for (const countB of b.values()) {
+        normB += countB * countB;
+      }
+
+      if (normA === 0 || normB === 0) return 0;
+      return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    };
+
+    // Pre-compute normalized texts and tokens
+    const normalized = questions.map(q => normalizeForComparison(q.question_text));
+    const termFrequencies = questions.map(q => buildTermFrequency(tokenize(q.question_text)));
+    const keep: boolean[] = new Array(questions.length).fill(true);
+
+    const completenessScore = (q: ParsedQuestion): number => {
+      return [q.correct_answer, q.bloom_level, q.difficulty,
+        q.choices && Object.keys(q.choices).length > 0,
+        q.category, q.specialization, q.subject_code
+      ].filter(Boolean).length;
+    };
+
+    for (let i = 0; i < questions.length; i++) {
+      if (!keep[i]) continue;
+      for (let j = i + 1; j < questions.length; j++) {
+        if (!keep[j]) continue;
+
+        // Layer 1: Exact match on normalized text
+        const isExact = normalized[i] === normalized[j];
+        // Layer 2: cosine similarity on normalized token frequencies
+        const sim = isExact ? 1.0 : cosineSimilarity(termFrequencies[i], termFrequencies[j]);
+
+        if (isExact || sim >= threshold) {
+          // Keep the one with more complete metadata
+          if (completenessScore(questions[j]) > completenessScore(questions[i])) {
+            keep[i] = false;
+            break;
+          } else {
+            keep[j] = false;
+          }
+        }
+      }
+    }
+
+    const result = questions.filter((_, i) => keep[i]);
+    console.log(`Deduplication: ${questions.length} → ${result.length} (removed ${questions.length - result.length})`);
+    return result;
   };
 
   /** Step 1: Parse, classify, resolve metadata, then show verification */
@@ -296,43 +630,81 @@ export default function BulkImport({
         setProgress(20);
       }
 
-      setCurrentStep('Validating data...');
-      const validationErrors: string[] = [];
-      const normalizedData: ParsedQuestion[] = [];
+      setCurrentStep('Normalizing data...');
+      const validationWarnings: string[] = [];
 
-      rawData.forEach((row, index) => {
-        const rowErrors = validateRow(row, index);
-        validationErrors.push(...rowErrors);
-        if (rowErrors.length === 0) {
-          const normalized = normalizeRow(row);
-          normalizedData.push({
-            ...normalized,
-            created_by: 'teacher',
-            approved: false,
-            needs_review: true,
-          } as ParsedQuestion);
-        }
+      const normalizedData: ParsedQuestion[] = rawData.map((row) => {
+        const normalized = normalizeRow(row);
+        return {
+          ...normalized,
+          question_text: stripQuestionPrefix(normalized.question_text || ''),
+          created_by: 'teacher',
+          approved: false,
+          needs_review: true,
+        } as ParsedQuestion;
       });
 
-      if (validationErrors.length > 0) {
-        setErrors(validationErrors);
+      if (normalizedData.length === 0) {
+        setErrors(['No valid questions found in the file. Each row needs at least question text (5+ characters).']);
         setIsProcessing(false);
         return;
       }
 
-      setProgress(40);
+      // ===== DEDUPLICATION STEP =====
+      setProgress(35);
+      setCurrentStep('Detecting duplicate questions...');
+      const deduplicatedBeforeValidation = deduplicateQuestions(normalizedData, 0.90);
+      const removedDupes = normalizedData.length - deduplicatedBeforeValidation.length;
+
+      // ===== VALIDATION STEP (after dedup) =====
+      setProgress(50);
+      setCurrentStep('Validating deduplicated questions...');
+      const deduplicatedData: ParsedQuestion[] = [];
+      let skippedCount = 0;
+
+      deduplicatedBeforeValidation.forEach((row, index) => {
+        const rowErrors = validateNormalized(row, index);
+        if (rowErrors.length > 0) {
+          validationWarnings.push(...rowErrors);
+          skippedCount++;
+          return;
+        }
+        deduplicatedData.push({
+          ...row,
+          question_text: stripQuestionPrefix(row.question_text),
+        });
+      });
+
+      if (deduplicatedData.length === 0) {
+        setErrors(['No valid questions remained after deduplication and validation.']);
+        setIsProcessing(false);
+        return;
+      }
+
+      if (removedDupes > 0) {
+        validationWarnings.push(`${removedDupes} duplicate question(s) removed based on semantic similarity (≥90% match).`);
+        toast.info(`Removed ${removedDupes} duplicate questions`);
+      }
+
+      if (skippedCount > 0) {
+        validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${deduplicatedData.length} valid questions will be processed.`);
+      }
+
+      setErrors(validationWarnings);
+
+      setProgress(65);
       setCurrentStep('Classifying questions with AI...');
 
       // AI classification
       try {
-        const classificationInput = normalizedData.map(q => ({
+        const classificationInput = deduplicatedData.map(q => ({
           text: q.question_text,
           type: q.question_type,
           topic: q.topic
         }));
 
         const classifications = await classifyQuestions(classificationInput);
-        normalizedData.forEach((question, index) => {
+        deduplicatedData.forEach((question, index) => {
           const classification = classifications[index];
           if (classification) {
             question.bloom_level = question.bloom_level || classification.bloom_level;
@@ -351,7 +723,7 @@ export default function BulkImport({
       } catch (aiError) {
         console.warn('AI classification unavailable, using rule-based:', aiError);
         toast.info('Using rule-based classification (AI unavailable)');
-        normalizedData.forEach((question) => {
+        deduplicatedData.forEach((question) => {
           if (!question.bloom_level) question.bloom_level = classifyBloom(question.question_text);
           if (!question.knowledge_dimension) question.knowledge_dimension = detectKnowledgeDimension(question.question_text, question.question_type);
           if (!question.difficulty) question.difficulty = inferDifficulty(question.bloom_level as any, question.question_text, question.question_type);
@@ -360,11 +732,56 @@ export default function BulkImport({
         });
       }
 
-      setProgress(70);
+      // ===== AUTO TOPIC ASSIGNMENT =====
+      setProgress(72);
+      setCurrentStep('Assigning topics from Question Bank...');
+
+      if (existingTopics.length > 0) {
+        const topicTokensMap = existingTopics.map(t => ({
+          topic: t,
+          tokens: new Set(t.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2)),
+        }));
+
+        deduplicatedData.forEach((q) => {
+          // Skip if topic is already meaningfully assigned (not 'General' or empty)
+          if (q.topic && q.topic !== 'General' && q.topic !== selectedTopic) return;
+
+          const qTokens = q.question_text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+          const qSet = new Set(qTokens);
+
+          let bestTopic = '';
+          let bestScore = 0;
+
+          for (const { topic, tokens } of topicTokensMap) {
+            if (tokens.size === 0) continue;
+            // Jaccard-like overlap
+            let overlap = 0;
+            for (const token of tokens) {
+              if (qSet.has(token)) overlap++;
+            }
+            const score = overlap / Math.max(tokens.size, 1);
+            if (score > bestScore && score >= 0.3) {
+              bestScore = score;
+              bestTopic = topic;
+            }
+          }
+
+          if (bestTopic) {
+            q.topic = bestTopic;
+          }
+        });
+        
+        const assignedCount = deduplicatedData.filter(q => q.topic !== 'General' && q.topic !== selectedTopic).length;
+        if (assignedCount > 0) {
+          toast.info(`Auto-assigned topics to ${assignedCount} questions from Question Bank`);
+        }
+      }
+
+      setProgress(78);
       setCurrentStep('Resolving subject metadata...');
 
       // Resolve metadata for each question
-      normalizedData.forEach((q) => {
+      deduplicatedData.forEach((q) => {
         const resolved = resolveSubjectMetadata({
           subject: q.subject,
           topic: q.topic,
@@ -381,9 +798,9 @@ export default function BulkImport({
 
       setProgress(100);
       setCurrentStep('Analysis complete');
-      setVerificationData(normalizedData);
+      setVerificationData(deduplicatedData);
       setImportStep('verification');
-      toast.success(`Analyzed ${normalizedData.length} questions. Please verify before saving.`);
+      toast.success(`Analyzed ${deduplicatedData.length} unique questions${removedDupes > 0 ? ` (${removedDupes} duplicates removed)` : ''}. Please verify before saving.`);
     } catch (error) {
       console.error('Analysis error:', error);
       toast.error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -407,14 +824,42 @@ export default function BulkImport({
         return validKnowledgeDimensions.includes(n) ? n : 'conceptual';
       };
 
-      const questionsWithDefaults = verificationData.map(q => ({
-        topic: q.topic || 'General',
-        question_text: q.question_text || '',
+      const normalizeDifficulty = (val: string | undefined): string => {
+        const n = (val || 'average').toLowerCase().trim();
+        const difficultyMap: Record<string, string> = {
+          'easy': 'easy',
+          'simple': 'easy',
+          'basic': 'easy',
+          'average': 'average',
+          'medium': 'average',
+          'moderate': 'average',
+          'difficult': 'difficult',
+          'hard': 'difficult',
+          'complex': 'difficult',
+          'advanced': 'difficult',
+        };
+        return difficultyMap[n] || 'average';
+      };
+
+      const cleanedVerificationData = verificationData.map(q => ({
+        ...q,
+        question_text: stripQuestionPrefix(q.question_text || ''),
+      }));
+
+      const deduplicatedForSave = deduplicateQuestions(cleanedVerificationData, 0.90);
+      const saveDupesRemoved = verificationData.length - deduplicatedForSave.length;
+      if (saveDupesRemoved > 0) {
+        toast.info(`Removed ${saveDupesRemoved} duplicate questions before final save`);
+      }
+
+      const questionsWithDefaults = deduplicatedForSave.map(q => ({
+        topic: q.topic || q.subject_description || 'General',
+        question_text: stripQuestionPrefix(q.question_text || ''),
         question_type: (q.question_type as 'mcq' | 'true_false' | 'essay' | 'short_answer') || 'mcq',
         choices: q.choices || {},
         correct_answer: q.correct_answer || '',
         bloom_level: (q.bloom_level || 'understanding').toLowerCase(),
-        difficulty: (q.difficulty || 'average').toLowerCase(),
+        difficulty: normalizeDifficulty(q.difficulty),
         knowledge_dimension: normalizeKD(q.knowledge_dimension),
         created_by: 'teacher' as const,
         approved: false,
@@ -440,15 +885,15 @@ export default function BulkImport({
       setCurrentStep('Import completed!');
 
       const stats: ImportStats = {
-        total: verificationData.length,
-        processed: verificationData.length,
-        approved: verificationData.filter(q => q.approved).length,
-        needsReview: verificationData.filter(q => q.needs_review).length,
+        total: deduplicatedForSave.length,
+        processed: deduplicatedForSave.length,
+        approved: deduplicatedForSave.filter(q => q.approved).length,
+        needsReview: deduplicatedForSave.filter(q => q.needs_review).length,
         byBloom: {},
         byDifficulty: {},
         byTopic: {},
       };
-      verificationData.forEach((q) => {
+      deduplicatedForSave.forEach((q) => {
         stats.byBloom[q.bloom_level!] = (stats.byBloom[q.bloom_level!] || 0) + 1;
         stats.byDifficulty[q.difficulty!] = (stats.byDifficulty[q.difficulty!] || 0) + 1;
         stats.byTopic[q.topic] = (stats.byTopic[q.topic] || 0) + 1;
@@ -456,7 +901,7 @@ export default function BulkImport({
 
       setResults(stats);
       setImportStep('results');
-      toast.success(`Successfully imported ${verificationData.length} questions!`);
+      toast.success(`Successfully imported ${deduplicatedForSave.length} questions!`);
       onImportComplete();
     } catch (error) {
       console.error('Import error:', error);
@@ -587,7 +1032,7 @@ export default function BulkImport({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-2">
-            Download our CSV template to ensure your data is formatted correctly. The template includes columns for <strong>Category</strong>, <strong>Specialization</strong>, <strong>Subject Code</strong>, and <strong>Subject Description</strong>.
+            Download our CSV template to ensure your data is formatted correctly. The template includes columns for <strong>Category</strong>, <strong>Specialization</strong>, <strong>Subject Code</strong>, and <strong>Subject Description</strong>. <strong>Topic</strong> is optional and will default to Subject Description if not provided.
           </p>
           <Button onClick={downloadTemplate} variant="outline">
             <Download className="h-4 w-4 mr-2" />
@@ -692,19 +1137,19 @@ export default function BulkImport({
         </Card>
       )}
 
-      {/* Errors */}
+      {/* Warnings/Errors - shown as warning when import continues, destructive when blocked */}
       {errors.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant={importStep === 'upload' ? 'destructive' : 'default'}>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             <div className="space-y-1">
-              <p className="font-medium">Import errors found:</p>
+              <p className="font-medium">{importStep === 'upload' ? 'Import blocked:' : 'Import warnings (skipped rows):'}</p>
               <ul className="list-disc list-inside space-y-1">
                 {errors.slice(0, 10).map((error, index) => (
                   <li key={index} className="text-sm">{error}</li>
                 ))}
               </ul>
-              {errors.length > 10 && <p className="text-sm">... and {errors.length - 10} more errors</p>}
+              {errors.length > 10 && <p className="text-sm">... and {errors.length - 10} more warnings</p>}
             </div>
           </AlertDescription>
         </Alert>

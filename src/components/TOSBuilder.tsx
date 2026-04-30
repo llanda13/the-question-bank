@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Calculator, Brain, Target, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Calculator, Brain, Target, AlertTriangle, Upload } from "lucide-react";
+import { TOSUploadParser } from "./tos/TOSUploadParser";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
@@ -66,6 +67,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<CanonicalTOSMatrix | null>(null);
+  const [autoGeneratePending, setAutoGeneratePending] = useState(false);
   const [showMatrix, setShowMatrix] = useState(false);
   const [sufficiencyAnalysis, setSufficiencyAnalysis] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -174,6 +176,15 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       });
     }
   }, [location.state, reset]);
+
+  // Auto-generate matrix after file upload populates form
+  useEffect(() => {
+    if (autoGeneratePending) {
+      setAutoGeneratePending(false);
+      // Trigger form submission programmatically
+      handleSubmit(onSubmit)();
+    }
+  }, [autoGeneratePending]);
 
   const watchedTotalItems = watch("total_items");
 
@@ -558,11 +569,54 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="flex items-center gap-2 text-academic-primary">
               <Calculator className="h-5 w-5" />
               Table of Specification Builder
           </CardTitle>
+          <TOSUploadParser onParsed={(data) => {
+            const parsedTopics = data.topics.length > 0 ? data.topics : [{ topic: "", hours: 0 }];
+            setTopics(parsedTopics);
+            
+            const formData = {
+              subject_no: data.subject_no || "",
+              course: data.course || "",
+              description: data.description || "",
+              year_section: data.year_section || "",
+              exam_period: data.exam_period || "",
+              school_year: data.school_year || "",
+              total_items: data.total_items || 50,
+              prepared_by: data.prepared_by || "",
+              checked_by: data.checked_by || "",
+              noted_by: data.noted_by || "",
+              topics: parsedTopics,
+            };
+            
+            reset(formData);
+
+            // Check which required fields are missing
+            const missingFields: string[] = [];
+            if (!formData.subject_no) missingFields.push("Subject No.");
+            if (!formData.course) missingFields.push("Course");
+            if (!formData.description) missingFields.push("Subject Description");
+            if (!formData.year_section) missingFields.push("Year & Section");
+            if (!formData.exam_period) missingFields.push("Exam Period");
+            if (!formData.school_year) missingFields.push("School Year");
+            
+            const hasValidTopics = parsedTopics.some(t => t.topic && t.hours > 0);
+            if (!hasValidTopics) missingFields.push("Topics with hours");
+
+            if (missingFields.length > 0) {
+              toast.warning("Some fields could not be extracted", {
+                description: `Please fill in: ${missingFields.join(", ")}. Then click "Generate TOS Matrix".`,
+                duration: 8000,
+              });
+            } else {
+              // All required fields present — auto-generate matrix
+              toast.success("All fields extracted! Generating TOS Matrix...");
+              setAutoGeneratePending(true);
+            }
+          }} />
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
