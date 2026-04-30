@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import type { KnowledgeDimension } from "@/types/knowledge";
 import { quickClassifyKnowledgeDimension } from "@/services/analysis/knowledgeDeterminer";
+import { deduplicateSubjectCode, batchDeduplicateSubjectCodes } from "@/services/db/subjectDeduplication";
 
 export type Question = Database['public']['Tables']['questions']['Row'];
 export type QuestionInsert = Database['public']['Tables']['questions']['Insert'];
@@ -100,6 +101,12 @@ export const Questions = {
       approved: false
     };
 
+    // Deduplicate subject code before inserting
+    await deduplicateSubjectCode(
+      questionData.subject_description,
+      questionData.subject_code
+    );
+
     const { data, error } = await supabase
       .from('questions')
       .insert(questionData)
@@ -125,7 +132,7 @@ export const Questions = {
   async delete(id: string): Promise<void> {
     const { error } = await supabase
       .from('questions')
-      .delete()
+      .update({ deleted: true, updated_at: new Date().toISOString() } as any)
       .eq('id', id);
 
     if (error) throw error;
@@ -147,6 +154,9 @@ export const Questions = {
         approved: false
       };
     });
+
+    // Deduplicate subject codes before inserting
+    await batchDeduplicateSubjectCodes(questionsData);
 
     const { data, error } = await supabase
       .from('questions')
