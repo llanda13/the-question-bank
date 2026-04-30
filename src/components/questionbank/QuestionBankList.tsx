@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Search, Edit, Trash2, Bot, User, Filter } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
 
 interface Question {
   id: string;
@@ -31,6 +32,7 @@ export function QuestionBankList() {
   const [difficultyFilter, setDifficultyFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const { toast } = useToast();
+  const { isAdmin } = useUserRole();
 
   useEffect(() => {
     fetchQuestions();
@@ -42,6 +44,7 @@ export function QuestionBankList() {
       const { data, error } = await supabase
         .from('questions')
         .select('*')
+        .eq('deleted', false)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -64,7 +67,7 @@ export function QuestionBankList() {
       const { supabase } = await import('@/integrations/supabase/client');
       const { error } = await supabase
         .from('questions')
-        .delete()
+        .update({ deleted: true, updated_at: new Date().toISOString() } as any)
         .eq('id', questionId);
 
       if (error) throw error;
@@ -72,7 +75,7 @@ export function QuestionBankList() {
       setQuestions(questions.filter(q => q.id !== questionId));
       toast({
         title: "Question Deleted",
-        description: "Question has been removed from the bank.",
+        description: "Question has been moved to Recently Deleted.",
       });
     } catch (error) {
       console.error('Error deleting question:', error);
@@ -227,7 +230,7 @@ export function QuestionBankList() {
                 <TableHead>Difficulty</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead>Usage</TableHead>
-                <TableHead>Actions</TableHead>
+                {isAdmin && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -284,25 +287,27 @@ export function QuestionBankList() {
                       Available
                     </Badge>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm">
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => handleDelete(question.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => handleDelete(question.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {filteredQuestions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={isAdmin ? 8 : 7} className="text-center py-8 text-muted-foreground">
                     No questions found matching your filters.
                   </TableCell>
                 </TableRow>
